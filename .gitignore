@@ -1,0 +1,42 @@
+# Secrets
+ssh/keys/
+*.pem
+*.key
+id_rsa*
+config/devices.json
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+build/
+.npm/
+*.log
+npm-debug.log*
+
+# IDE
+.vscode/
+
+# Runtime
+*.db
+*.sqllite3
+logs/
+*.log
+
+# OS
+*.exe
+nssm/

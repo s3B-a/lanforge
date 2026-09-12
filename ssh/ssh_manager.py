@@ -203,12 +203,15 @@ def cmd_register(args: argparse.Namespace) -> None:
     if args.ollama_port:
         payload["ollama_port"] = args.ollama_port
 
+    _hub_request(args.hub_url, "/devices", "POST", args.token, payload)
+
+def _hub_request(hub_url: str, path: str, method: str, token: str, payload: dict) -> None:
     request = urllib.request.Request(
-        f"{args.hub_url.rstrip('/')}/devices",
+        f"{hub_url.rstrip('/')}{path}",
         data=json.dumps(payload).encode(),
-        method="POST",
+        method=method,
         headers={
-            "Authorization": f"Bearer {args.token}",
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         },
     )
@@ -219,6 +222,20 @@ def cmd_register(args: argparse.Namespace) -> None:
         print(f"error: hub returned {exc.code}: {exc.read().decode(errors='replace')}", file=sys.stderr)
         sys.exit(1)
 
+def cmd_update(args: argparse.Namespace) -> None:
+    fields = {
+        "name": args.name,
+        "host": args.host,
+        "ssh_port": args.ssh_port,
+        "ssh_user": args.ssh_user,
+        "ollama_port": args.ollama_port,
+    }
+    fields = {k: v for k, v in fields.items() if v is not None}
+    if not fields:
+        print("error: give at least one field to update (--name/--host/--ssh-port/--ssh-user/--ollama-port)", file=sys.stderr)
+        sys.exit(1)
+
+    _hub_request(args.hub_url, f"/devices/{args.device_id}", "PATCH", args.token, fields)
 
 def cmd_list(args: argparse.Namespace) -> None:
     if not KEYS_DIR.exists():
@@ -283,6 +300,17 @@ def main() -> None:
     p.add_argument("--name")
     p.add_argument("--ollama-port", type=int)
     p.set_defaults(func=cmd_register)
+
+    p = sub.add_parser("update", help="patch fields on an already-registered device")
+    p.add_argument("device_id")
+    p.add_argument("--hub-url", required=True)
+    p.add_argument("--token", required=True)
+    p.add_argument("--host", help="e.g. to correct the fallback hostname")
+    p.add_argument("--ssh-user")
+    p.add_argument("--ssh-port", type=int)
+    p.add_argument("--name")
+    p.add_argument("--ollama-port", type=int, help="add this once you've installed an LLM on an already-registered device")
+    p.set_defaults(func=cmd_update)
 
     p = sub.add_parser("list", help="list locally managed keypairs")
     p.set_defaults(func=cmd_list)

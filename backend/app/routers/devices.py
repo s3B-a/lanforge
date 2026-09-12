@@ -27,6 +27,16 @@ def add_device(request: Request):
     
     return jsonify(device)
 
+@devices_router.patch("/:device_id", auth_required=True)
+def patch_device(request: Request):
+    device_id = request.path_params["device_id"]
+    fields = request.json()
+    device = devices_store.update_device(device_id, fields)
+    if device is None:
+        return Response(status_code=404, description="device not found", headers={})
+    
+    return jsonify(device)
+
 @devices_router.delete("/:device_id", auth_required=True)
 def delete_device(request: Request):
     device_id = request.path_params["device_id"]

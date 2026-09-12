@@ -125,9 +125,15 @@ changing `install_service.ps1`, remove the old service first
 
 ### An SSH-reachable machine
 
-1. Make sure you can already SSH into it manually once (password auth is
-   fine for this step), to confirm the OpenSSH server is running and
-   reachable.
+1. Enable an SSH server on it if it doesn't have one yet, then make sure you
+   can already SSH into it manually once to confirm it's running and reachable:
+   - Windows 11: `Settings > Apps > Optional Features > Add a feature >
+     OpenSSH Server`, then
+     `Start-Service sshd; Set-Service -Name sshd -StartupType Automatic`.
+   - Linux: `sudo systemctl enable --now sshd` (package name varies by
+     distro, e.g. `openssh-server` on Debian/Ubuntu).
+
+   Nothing else needs to run for shell/file access; SSH itself is enough.
 
 2. Generate a keypair for it and install the public half, using
    `ssh/ssh_manager.py` (same venv as the backend):
@@ -152,7 +158,14 @@ changing `install_service.ps1`, remove the old service first
    (Omit `--ollama-port` for a device that isn't running an LLM.) This is
    just a thin wrapper around `POST /devices`; you can call that endpoint
    directly instead if you'd rather script it yourself.
-   
+
+   If this device is running the LLM: Ollama binds to `127.0.0.1` only by
+   default, so the hub (a different machine) can't reach it until you point
+   it at the LAN interface instead, then restart Ollama:
+   ```powershell
+   setx OLLAMA_HOST "0.0.0.0:11434"
+   ```
+
 4. On that device, run the heartbeat agent so the hub always has its current
    LAN IP (handles DHCP changes, you don't need a static IP):
    ```powershell
@@ -164,6 +177,57 @@ changing `install_service.ps1`, remove the old service first
 Other `ssh_manager.py` commands: `list` (locally managed keypairs) and
 `remove <device-id>` (deletes the local keypair; you still need to drop the
 matching line from that device's `authorized_keys` yourself).
+
+### Installing with the LLM rig
+
+This repo doesn't ship a model, it proxies to whatever Ollama instance
+the LLM rig is running. To put a model on that machine (for our example:
+[qwen38-uncensored](https://github.com/Wassimyounes01/qwen38-uncensored)):
+
+1. Prerequisites on the rig: an NVIDIA GPU (24GB VRAM for the default
+   `Q4_K_M` quant, 12GB works with `--quant=Q3_K_M`), [Node.js](https://nodejs.org/),
+   and [Ollama](https://ollama.com/download) 0.17.1+.
+2. Install it:
+   ```powershell
+   git clone https://github.com/Wassimyounes01/qwen38-uncensored.git
+   cd qwen38-uncensored
+   node bin/install.cjs
+   ```
+   Add `--quant=Q3_K_M` or `--quant=IQ4_XS` to use a smaller quant on a
+   lower-VRAM GPU. This downloads 15-20GB of weights, so make sure there's
+   disk space free.
+3. Test it locally on the rig before involving the hub at all:
+   ```powershell
+   ollama run --think=false qwen3.8:27b-uncensored
+   ```
+   Run `ollama list` if you need the exact tag it installed under.
+4. Point Ollama at the LAN interface instead of just `127.0.0.1`, then
+   restart it so the change takes effect:
+   ```powershell
+   setx OLLAMA_HOST "0.0.0.0:11434"
+   ```
+   Open the port on the rig's firewall the same way you did for the hub
+   itself:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts\firewall_setup.ps1 -Port 11434
+   ```
+   Then tell the hub about the Ollama port, one of two ways depending on
+   whether this device is already registered:
+   - **Not registered yet:** run the full SSH walkthrough above, including
+     `--ollama-port 11434` on the `register` step from the start.
+   - **Already registered** (you set up SSH access before installing the
+     LLM): patch the existing entry instead, no need to delete/re-add it:
+     ```powershell
+     .venv\Scripts\python.exe ssh\ssh_manager.py update llm-rig `
+         --hub-url http://<hub-host>:8080 --token <HUB_TOKEN> --ollama-port 11434
+     ```
+     `update` PATCHes `/devices/:id`, merging in whatever fields you pass
+     (`--host`, `--ssh-user`, `--ssh-port`, `--name`, `--ollama-port`)
+     without touching the rest of the device's entry. `register` can't be
+     reused here, the hub rejects registering an ID that already exists.
+5. From the hub: `POST /llm/<device-id>/chat` with
+   `{"model": "qwen3.8:27b-uncensored", "messages": [...]}` (see the API
+   table below).
 
 ### A presence-only device (anything that can't run a script)
 
@@ -198,6 +262,7 @@ or a live TCP probe for anything else).
 | `GET /devices` | List devices + live online status |
 | `POST /devices` | Register a device |
 | `GET /devices/:id`, `DELETE /devices/:id` | Inspect / remove a device |
+| `PATCH /devices/:id` | Merge fields into an existing device (used by `ssh_manager.py update`) |
 | `POST /devices/:id/heartbeat` | Used by `heartbeat_agent.py` to report current IP |
 | `POST /shell/:id/exec` | Run a one-shot command over SSH |
 | `WS /shell/:id/session?token=` | Interactive terminal session |

@@ -68,13 +68,26 @@ def add_device(device: dict) -> dict:
 
     return device
 
+def update_device(device_id: str, fields: dict) -> dict | None:
+    """Merges the given fields into an existing device (used for e.g. adding
+    ollama_port after the fact, without deleting and re-adding it)."""
+    with _lock:
+        data = _load()
+        for device in data["devices"]:
+            if device["id"] == device_id:
+                device.update({k: v for k, v in fields.items() if v is not None})
+                _save(data)
+                return device
+            
+        return None
+
 def remove_device(device_id: str) -> bool:
     with _lock:
         data = _load()
         before = len(data["devices"])
         data["devices"] = [d for d in data["devices"] if d["id"] != device_id]
         _save(data)
-        
+
         return len(data["devices"]) < before
 
 def record_heartbeat(device_id: str, ip: str) -> dict | None:

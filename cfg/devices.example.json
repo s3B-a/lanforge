@@ -1,0 +1,32 @@
+{
+  "devices": [
+    {
+      "id": "llm-rig",
+      "name": "LLM Rig",
+      "kind": "ssh",
+      "host": "llm-rig.local",
+      "ssh_port": 22,
+      "ssh_user": "changeme",
+      "ssh_key_path": "ssh/keys/llm-rig",
+      "ollama_port": 11434,
+      "last_ip": null,
+      "last_seen": null
+    },
+    {
+      "id": "console",
+      "name": "device name",
+      "kind": "presence",
+      "host": "192.168.1.50",
+      "probe_port": 987,
+      "last_seen": null
+    },
+    {
+      "id": "tv",
+      "name": "device name",
+      "kind": "presence",
+      "host": "192.168.1.51",
+      "probe_port": 8009,
+      "last_seen": null
+    }
+  ]
+}

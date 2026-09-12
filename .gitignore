@@ -3,7 +3,7 @@ ssh/keys/
 *.pem
 *.key
 id_rsa*
-config/devices.json
+cfg/devices.json
 .env
 .env.*
 !.env.example

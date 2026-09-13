@@ -62,9 +62,16 @@ def run_command(device: dict, command: str, timeout: int = 30) -> dict:
 
 def open_interactive_shell(device: dict):
     """Returns (client, channel). Caller is responsible for closing `client`
-    once done with the channel (used for the websocket terminal session)."""
+    once done with the channel (used for the websocket terminal session).
+
+    invoke_shell() just requests whatever the SSH server's configured
+    default shell is, on Windows OpenSSH that's cmd.exe unless the
+    server's own registry DefaultShell is changed. Rather than requiring
+    that remote config change, launch PowerShell as the first command
+    over the fresh cmd.exe shell instead."""
     client = _connect(device)
     channel = client.invoke_shell(term="xterm")
+    channel.send(b"powershell.exe -NoLogo\r\n")
     return client, channel
 
 def sftp_list(device: dict, path: str) -> list[dict]:

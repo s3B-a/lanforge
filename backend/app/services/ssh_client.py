@@ -1,5 +1,6 @@
 import base64
 import json
+import threading
 from contextlib import contextmanager
 
 import paramiko
@@ -21,13 +22,33 @@ def _connect(device: dict) -> paramiko.SSHClient:
 
     return client
 
+_connections_lock = threading.Lock()
+_connections: dict[str, paramiko.SSHClient] = {}
+
+def _is_alive(client: paramiko.SSHClient) -> bool:
+    transport = client.get_transport()
+    return transport is not None and transport.is_active()
+
+def _get_persistent_client(device: dict) -> paramiko.SSHClient:
+    device_id = device["id"]
+    with _connections_lock:
+        client = _connections.get(device_id)
+        if client is not None and _is_alive(client):
+            return client
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+        client = _connect(device)
+        _connections[device_id] = client
+        return client
+
 @contextmanager
 def ssh_client(device: dict):
-    client = _connect(device)
-    try:
-        yield client
-    finally:
-        client.close()
+    """Yields this device's shared persistent connection. Do not close it,
+    other callers reuse the same cached connection"""
+    yield _get_persistent_client(device)
 
 def run_command(device: dict, command: str, timeout: int = 30) -> dict:
     with ssh_client(device) as client:
@@ -219,5 +240,5 @@ def open_screen_stream(device: dict):
     assert transport is not None, "transport is always set after a successful connect()"
     channel = transport.open_session()
     channel.exec_command(command)
-    
+
     return client, channel

@@ -31,7 +31,7 @@ def register_websockets(app):
     """Websocket routes are registered directly on the app (SubRouter
     websocket support isn't guaranteed), so main.py calls this after including shell_router"""
 
-    @app.websocket("/ws/shell/:device_id")
+    @app.websocket("/ws/shell")
     async def shell_session(websocket, device_id: str = "", token: str = ""):
         if token != HUB_TOKEN:
             await _safe_close(websocket)

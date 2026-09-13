@@ -59,7 +59,7 @@ def register_websockets(app):
     """Websocket routes are registered directly on the app (SubRouter
     websocket support isn't guaranteed)"""
 
-    @app.websocket("/ws/screen/:device_id")
+    @app.websocket("/ws/screen")
     async def screen_session(websocket, device_id: str = "", token: str = ""):
         if token != HUB_TOKEN:
             await _safe_close(websocket)

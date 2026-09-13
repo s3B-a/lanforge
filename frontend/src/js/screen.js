@@ -8,7 +8,7 @@
   }
 
   let currentUrl = null;
-  const ws = new WebSocket(wsUrl(`/ws/screen/${encodeURIComponent(deviceId)}`));
+  const ws = new WebSocket(wsUrl(`/ws/screen?device_id=${encodeURIComponent(deviceId)}`));
   ws.binaryType = "arraybuffer";
 
   ws.onmessage = (event) => {

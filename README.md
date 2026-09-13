@@ -296,28 +296,14 @@ caches it in that browser's `localStorage`.
   open it.
 - **`device.html?id=<device-id>`**: split view. One side has a terminal, other side is a live view of that machine's screen(s).
 - **`chat.html`**: pick a registered LLM device and one of its installed
-  models, then chat, responses stream in token-by-token. The left sidebar
-  shows that device's live CPU/RAM/disk/GPU status and a list of that
-  device's chats, so several separate conversations against the same
-  machine can run side by side without losing any of them; the model
-  names each chat's topic on its own after the first exchange, and the
-  three-dot menu on a chat lets you rename it, view the images that were
-  uploaded in it, or delete it (deleting always opens a fresh empty chat
-  in its place). A message sent while a response is still generating
-  queues up and answers in order rather than cutting the current response
-  off, and "Stop generating" interrupts the model immediately. Model
-  reasoning (for models that support it) shows in a collapsible
-  "Thinking..." section above the reply, with response time and token
-  count once it finishes. "Compact" asks the model to summarize a chat
-  and replaces its history with just that summary, to keep long-running
-  chats cheap to continue.
+  models, then chat, responses stream in token-by-token.
 
 **How the screen view works**: there's no screen-sharing agent running on
 your devices, the hub drives it entirely over the same SSH connection
 everything else uses. `ssh_client.open_screen_stream()` runs `ffmpeg`
 directly on the remote device (`gdigrab` capturing the desktop), piping a
-raw MJPEG stream back over that SSH channel. The `/ws/screen/:id`
-websocket scans that stream for JPEG start/end markers, forwarding each
+raw MJPEG stream back over that SSH channel. The `/ws/screen` websocket
+scans that stream for JPEG start/end markers, forwarding each
 complete frame to the browser as a binary message; `screen.js` turns each
 one into a `Blob` URL and swaps the `<img>` src, no change needed there
 regardless of what produces the frames.
@@ -368,9 +354,9 @@ env vars, or `cfg\.env`
 | `PATCH /devices/:id` | Merge fields into an existing device (used by `ssh_manager.py update`) |
 | `POST /devices/:id/heartbeat` | Used by `heartbeat_agent.py` to report current IP |
 | `GET /devices/:id/stats` | Live CPU/RAM/disk/network/GPU snapshot of an SSH device |
-| `WS /ws/screen/:id?token=` | Live JPEG frame stream of the device's monitor(s), composited into one image |
+| `WS /ws/screen?device_id=&token=` | Live JPEG frame stream of the device's monitor(s), composited into one image |
 | `POST /shell/:id/exec` | Run a one-shot command over SSH |
-| `WS /ws/shell/:id?token=` | Interactive terminal session |
+| `WS /ws/shell?device_id=&token=` | Interactive terminal session |
 | `GET /files/:id/list?path=` | List a directory over SFTP |
 | `GET /files/:id/download?path=` | Read a file (base64 in the JSON response) |
 | `POST /files/:id/upload` | Write a file (base64 in the JSON body) |

@@ -87,6 +87,40 @@ async def delete_conversation(request: Request):
 
     return jsonify({"deleted": True})
 
+@llm_router.patch("/:device_id/conversations/:conversation_id", auth_required=True)
+async def rename_conversation(request: Request):
+    device_id = request.path_params["device_id"]
+    conversation_id = request.path_params["conversation_id"]
+    if _llm_device_or_none(device_id) is None:
+        return Response(status_code=404, description="llm device not found", headers={})
+    if not conversations.conversation_exists(device_id, conversation_id):
+        return Response(status_code=404, description="conversation not found", headers={})
+
+    body = request.json() or {}
+    title = (body.get("title") or "").strip()[:80]
+    if not title:
+        return Response(status_code=400, description="title can't be blank", headers={})
+
+    entry = conversations.set_title(device_id, conversation_id, title)
+
+    return jsonify(entry)
+
+@llm_router.get("/:device_id/conversations/:conversation_id/files", auth_required=True)
+async def files(request: Request):
+    device_id = request.path_params["device_id"]
+    conversation_id = request.path_params["conversation_id"]
+    if _llm_device_or_none(device_id) is None:
+        return Response(status_code=404, description="llm device not found", headers={})
+    if not conversations.conversation_exists(device_id, conversation_id):
+        return Response(status_code=404, description="conversation not found", headers={})
+
+    items = []
+    for i, message in enumerate(conversations.load_messages(device_id, conversation_id)):
+        for image in message.get("images") or []:
+            items.append({"message_index": i, "role": message.get("role"), "image": image})
+
+    return jsonify({"files": items})
+
 @llm_router.get("/:device_id/conversations/:conversation_id/history", auth_required=True)
 async def history(request: Request):
     device_id = request.path_params["device_id"]
@@ -140,6 +174,39 @@ def _for_api(messages: list[dict]) -> list[dict]:
 
     return cleaned
 
+_AUTO_TITLE_PLACEHOLDERS = (None, "", "New chat", "Previous chat")
+
+async def _maybe_autotitle(device: dict, device_id: str, conversation_id: str, model: str) -> None:
+    """After a chat's first exchange completes, asks the model for a short
+    topic title and renames the chat to it"""
+    try:
+        entry = conversations.get_conversation(device_id, conversation_id)
+        if entry is None or entry.get("title") not in _AUTO_TITLE_PLACEHOLDERS:
+            return
+
+        messages = conversations.load_messages(device_id, conversation_id)
+        if len(messages) != 2:
+            return
+
+        title_request = [
+            {
+                "role": "system",
+                "content": (
+                    "Reply with only a short 3 to 6 word title summarizing the topic "
+                    "of the conversation below. No punctuation at the end, no quotes, "
+                    "no commentary, just the title text."
+                ),
+            },
+            *_for_api(messages),
+        ]
+        data = await llm_client.chat(device, model, title_request)
+        title = data.get("message", {}).get("content", "").strip().strip('"').strip()
+        title = title.splitlines()[0][:60].strip() if title else ""
+        if title:
+            conversations.set_title(device_id, conversation_id, title)
+    except Exception:
+        pass
+
 async def _run_generation(device: dict, model: str, device_id: str, conversation_id: str, user_message: dict, gen: "_Generation") -> None:
     conversations.append_message(device_id, conversation_id, user_message)
     try:
@@ -188,6 +255,9 @@ async def _run_generation(device: dict, model: str, device_id: str, conversation
             if gen.cancelled:
                 assistant_message["interrupted"] = True
             conversations.append_message(device_id, conversation_id, assistant_message)
+
+            if not gen.cancelled and not gen.error:
+                asyncio.create_task(_maybe_autotitle(device, device_id, conversation_id, model))
 
 async def _chat_worker(device: dict, device_id: str, conversation_id: str, key: str) -> None:
     queue = _queues.setdefault(key, deque())

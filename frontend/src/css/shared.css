@@ -237,6 +237,7 @@ body {
   overflow-y: auto;
 }
 .conversation-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -259,20 +260,134 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.conversation-item .conv-delete {
-  opacity: 0;
+.conversation-item .conv-title-input {
+  flex: 1;
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 13px;
+  font-family: inherit;
+}
+.conversation-item .conv-menu-btn {
   background: none;
   border: none;
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 12px;
-  padding: 2px 4px;
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
 }
-.conversation-item:hover .conv-delete {
-  opacity: 1;
+.conversation-item .conv-menu-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
 }
-.conversation-item .conv-delete:hover {
+.conv-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 6px;
+  z-index: 20;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  min-width: 120px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.conv-menu button {
+  background: none;
+  border: none;
+  color: var(--text);
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.conv-menu button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.conv-menu button.danger {
   color: var(--bad);
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: min(520px, 90vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+.modal-header .icon-btn {
+  width: 28px;
+  height: 28px;
+  font-size: 13px;
+}
+.modal-body {
+  padding: 16px;
+  overflow-y: auto;
+}
+.modal-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 0;
+  color: var(--text-dim);
+  text-align: center;
+}
+.modal-empty pre {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--text-dim);
+}
+.files-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+.files-grid img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.files-grid .file-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.files-grid .file-role {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: center;
 }
 
 .chat-main {
@@ -299,9 +414,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-width: 800px;
   width: 100%;
-  margin: 0 auto;
 }
 .msg {
   border-radius: var(--radius);
@@ -442,9 +555,7 @@ body {
   display: flex;
   gap: 8px;
   align-items: flex-end;
-  max-width: 800px;
   width: 100%;
-  margin: 0 auto;
 }
 .chat-input-area textarea {
   flex: 1;
@@ -490,8 +601,6 @@ body {
   display: flex;
   gap: 8px;
   padding: 0 24px;
-  max-width: 800px;
-  margin: 0 auto;
   width: 100%;
 }
 .image-preview {

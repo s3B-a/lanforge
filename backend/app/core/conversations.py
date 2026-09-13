@@ -90,6 +90,28 @@ def conversation_exists(device_id: str, conversation_id: str) -> bool:
     with _lock:
         return any(e["id"] == conversation_id for e in _load_index_unlocked(device_id))
 
+def get_conversation(device_id: str, conversation_id: str) -> dict | None:
+    with _lock:
+        for entry in _load_index_unlocked(device_id):
+            if entry["id"] == conversation_id:
+                return entry
+            
+        return None
+
+def set_title(device_id: str, conversation_id: str, title: str) -> dict | None:
+    with _lock:
+        entries = _load_index_unlocked(device_id)
+        updated = None
+        for entry in entries:
+            if entry["id"] == conversation_id:
+                entry["title"] = title
+                updated = entry
+                break
+        if updated is not None:
+            _save_index_unlocked(device_id, entries)
+
+        return updated
+
 def delete_conversation(device_id: str, conversation_id: str) -> None:
     with _lock:
         entries = [e for e in _load_index_unlocked(device_id) if e["id"] != conversation_id]

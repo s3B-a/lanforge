@@ -296,7 +296,21 @@ caches it in that browser's `localStorage`.
   open it.
 - **`device.html?id=<device-id>`**: split view. One side has a terminal, other side is a live view of that machine's screen(s).
 - **`chat.html`**: pick a registered LLM device and one of its installed
-  models, then chat, responses stream in token-by-token.
+  models, then chat, responses stream in token-by-token. The left sidebar
+  shows that device's live CPU/RAM/disk/GPU status and a list of that
+  device's chats, so several separate conversations against the same
+  machine can run side by side without losing any of them; the model
+  names each chat's topic on its own after the first exchange, and the
+  three-dot menu on a chat lets you rename it, view the images that were
+  uploaded in it, or delete it (deleting always opens a fresh empty chat
+  in its place). A message sent while a response is still generating
+  queues up and answers in order rather than cutting the current response
+  off, and "Stop generating" interrupts the model immediately. Model
+  reasoning (for models that support it) shows in a collapsible
+  "Thinking..." section above the reply, with response time and token
+  count once it finishes. "Compact" asks the model to summarize a chat
+  and replaces its history with just that summary, to keep long-running
+  chats cheap to continue.
 
 **How the screen view works**: there's no screen-sharing agent running on
 your devices, the hub drives it entirely over the same SSH connection
@@ -364,6 +378,8 @@ env vars, or `cfg\.env`
 | `GET /llm/:id/conversations` | List that device's chats (id, title, timestamps), newest first |
 | `POST /llm/:id/conversations` | Start a new chat on that device. Body: `{"title"?}` |
 | `DELETE /llm/:id/conversations/:cid` | Delete a chat entirely. Fails with 409 while it's generating |
+| `PATCH /llm/:id/conversations/:cid` | Rename a chat. Body: `{"title"}`, rejected with 400 if blank |
+| `GET /llm/:id/conversations/:cid/files` | List the images that were uploaded as attachments in that chat |
 | `GET /llm/:id/conversations/:cid/history` | That chat's persisted messages, plus `generating` and `queued` counters |
 | `DELETE /llm/:id/conversations/:cid/history` | Clear a chat's messages, keeping the chat itself |
 | `POST /llm/:id/conversations/:cid/chat` | Send one message (`{"model", "message", "images"?}`); streams via SSE unless `"stream": false`. Messages within the same chat are queued and answered one at a time |

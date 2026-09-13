@@ -16,6 +16,15 @@ const uploadBtn = document.getElementById("upload-btn");
 const fileInput = document.getElementById("file-input");
 const previewRow = document.getElementById("image-preview-row");
 const statusEl = document.getElementById("chat-status");
+const filesDialogOverlay = document.getElementById("files-dialog-overlay");
+const filesDialogBody = document.getElementById("files-dialog-body");
+const filesDialogClose = document.getElementById("files-dialog-close");
+
+const CAT_ASCII = String.raw`
+        /\_/\
+       ( o.o )
+        > ^ <
+  no uploaded files`;
 
 let pendingImages = []; // { dataUrl, base64 }
 let viewEpoch = 0;
@@ -206,21 +215,134 @@ function startStatsPolling(deviceId, epoch) {
   statsIntervalId = setInterval(() => loadDeviceStats(deviceId, epoch), 3000);
 }
 
+function closeAllConvMenus() {
+  conversationListEl.querySelectorAll(".conv-menu").forEach((m) => m.remove());
+}
+
+document.addEventListener("click", closeAllConvMenus);
+
 function renderConversationList() {
   conversationListEl.innerHTML = "";
   for (const conv of conversationsCache) {
     const el = document.createElement("div");
     el.className = "conversation-item" + (conv.id === conversationId ? " active" : "");
-    el.innerHTML = `<span class="conv-title">${conv.title || "New chat"}</span><button class="conv-delete" type="button" title="delete this chat">x</button>`;
+    el.dataset.id = conv.id;
+    el.innerHTML =
+      `<span class="conv-title">${conv.title || "New chat"}</span>` +
+      '<button class="conv-menu-btn" type="button" title="chat options">&#8942;</button>';
+
     el.querySelector(".conv-title").addEventListener("click", () => selectConversation(conv.id));
-    el.querySelector(".conv-delete").addEventListener("click", (e) => {
+    el.querySelector(".conv-menu-btn").addEventListener("click", (e) => {
       e.stopPropagation();
-      deleteConversation(conv.id);
+      toggleConvMenu(el, conv);
     });
 
     conversationListEl.appendChild(el);
   }
 }
+
+function toggleConvMenu(itemEl, conv) {
+  const existing = itemEl.querySelector(".conv-menu");
+  closeAllConvMenus();
+  if (existing) return;
+
+  const menu = document.createElement("div");
+  menu.className = "conv-menu";
+  menu.innerHTML =
+    '<button type="button" data-action="rename">Rename</button>' +
+    '<button type="button" data-action="files">Files</button>' +
+    '<button type="button" class="danger" data-action="delete">Delete</button>';
+
+  menu.addEventListener("click", (e) => e.stopPropagation());
+  menu.querySelector('[data-action="rename"]').addEventListener("click", () => {
+    closeAllConvMenus();
+    startRename(itemEl, conv);
+  });
+  menu.querySelector('[data-action="files"]').addEventListener("click", () => {
+    closeAllConvMenus();
+    openFilesDialog(conv.id);
+  });
+  menu.querySelector('[data-action="delete"]').addEventListener("click", () => {
+    closeAllConvMenus();
+    deleteConversation(conv.id);
+  });
+
+  itemEl.appendChild(menu);
+}
+
+function startRename(itemEl, conv) {
+  const titleEl = itemEl.querySelector(".conv-title");
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "conv-title-input";
+  input.value = conv.title || "";
+  titleEl.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let settled = false;
+  const finish = async (save) => {
+    if (settled) return;
+    settled = true;
+    const value = input.value.trim();
+    if (save && value) {
+      try {
+        const updated = await apiFetch(`/llm/${encodeURIComponent(deviceSelect.value)}/conversations/${encodeURIComponent(conv.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: value }),
+        }).then((r) => r.json());
+        Object.assign(conv, updated);
+        if (conv.id === conversationId) conversationTitleEl.textContent = conv.title;
+      } catch (e) {
+        statusEl.textContent = `rename failed: ${e.message}`;
+      }
+    }
+    renderConversationList();
+  };
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") finish(true);
+    if (e.key === "Escape") finish(false);
+  });
+  input.addEventListener("blur", () => finish(true));
+}
+
+async function openFilesDialog(id) {
+  const deviceId = deviceSelect.value;
+  if (!deviceId) return;
+  filesDialogOverlay.hidden = false;
+  filesDialogBody.innerHTML = '<div class="empty-state">loading...</div>';
+
+  try {
+    const data = await apiGet(`/llm/${encodeURIComponent(deviceId)}/conversations/${encodeURIComponent(id)}/files`);
+    const files = data.files || [];
+    if (files.length === 0) {
+      filesDialogBody.innerHTML = `<div class="modal-empty"><pre>${CAT_ASCII}</pre></div>`;
+      return;
+    }
+
+    filesDialogBody.innerHTML = '<div class="files-grid"></div>';
+    const grid = filesDialogBody.querySelector(".files-grid");
+    for (const f of files) {
+      const item = document.createElement("div");
+      item.className = "file-item";
+      item.innerHTML = `<img src="${imageDataUrl(f.image)}"><span class="file-role">${f.role}</span>`;
+      grid.appendChild(item);
+    }
+  } catch (e) {
+    filesDialogBody.innerHTML = `<div class="empty-state">${e.message}</div>`;
+  }
+}
+
+function closeFilesDialog() {
+  filesDialogOverlay.hidden = true;
+}
+
+filesDialogClose.addEventListener("click", closeFilesDialog);
+filesDialogOverlay.addEventListener("click", (e) => {
+  if (e.target === filesDialogOverlay) closeFilesDialog();
+});
 
 async function loadConversations(deviceId) {
   const data = await apiGet(`/llm/${encodeURIComponent(deviceId)}/conversations`);
@@ -237,6 +359,7 @@ async function selectConversation(id) {
 
   const conv = conversationsCache.find((c) => c.id === id);
   conversationTitleEl.textContent = conv ? conv.title || "New chat" : "";
+  messagesEl.innerHTML = '<div class="empty-state">loading...</div>';
 
   const data = await apiGet(`${apiBase()}/history`);
   if (epoch !== viewEpoch) return;
@@ -273,15 +396,10 @@ async function deleteConversation(id) {
   }
 
   conversationsCache = conversationsCache.filter((c) => c.id !== id);
-  if (id === conversationId) {
-    if (conversationsCache.length === 0) {
-      const entry = await apiPost(`/llm/${encodeURIComponent(deviceId)}/conversations`, {});
-      conversationsCache = [entry];
-    }
-    await selectConversation(conversationsCache[0].id);
-  } else {
-    renderConversationList();
-  }
+
+  const entry = await apiPost(`/llm/${encodeURIComponent(deviceId)}/conversations`, {});
+  conversationsCache.unshift(entry);
+  await selectConversation(entry.id);
 }
 
 async function loadDevices() {
@@ -329,10 +447,7 @@ async function onDeviceChange() {
   }
 
   startStatsPolling(deviceId, statEpoch);
-  await loadModels();
-  if (epoch !== viewEpoch) return;
-
-  await loadConversations(deviceId);
+  await Promise.all([loadModels(), loadConversations(deviceId)]);
   if (epoch !== viewEpoch) return;
   renderConversationList();
 

@@ -298,15 +298,11 @@ caches it in that browser's `localStorage`.
 - **`chat.html`**: pick a registered LLM device and one of its installed
   models, then chat, responses stream in token-by-token.
 
-**How the screen view works, and why it needs its own agent**: running `ffmpeg` directly over the SSH connection like everything else, does not work on Windows. Screen capture (`gdigrab`, and
+**How the screen view works**: running `ffmpeg` directly over the SSH connection like everything else, does not work on Windows. Screen capture (`gdigrab`, and
 every other Windows capture API) requires access to the interactive
 window station, and a process spawned by `sshd` always lands in a
 different, non-interactive window station with no desktop access, even
-while you're actively logged in over RDP or at the console. It fails
-immediately with `Failed to capture image (error 5)`
-(`ERROR_ACCESS_DENIED`), and no ffmpeg flag or hub-side code change routes
-around that, it's a Windows session-isolation restriction on the process
-itself.
+while you're actively logged in over RDP or at the console.
 
 **Setting it up on a device** (e.g. `llm-rig`):
 

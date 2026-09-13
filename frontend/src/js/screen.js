@@ -8,6 +8,7 @@
   }
 
   let currentUrl = null;
+  let sawError = false;
   const ws = new WebSocket(wsUrl(`/ws/screen?device_id=${encodeURIComponent(deviceId)}`));
   ws.binaryType = "arraybuffer";
 
@@ -15,9 +16,13 @@
     if (typeof event.data === "string") {
       try {
         const payload = JSON.parse(event.data);
-        if (payload.error) img.alt = payload.error;
+        if (payload.error) {
+          img.alt = payload.error;
+          sawError = true;
+        }
       } catch (e) {
         img.alt = "screen stream error";
+        sawError = true;
       }
       return;
     }
@@ -30,10 +35,10 @@
   };
 
   ws.onerror = () => {
-    img.alt = "screen stream error";
+    if (!sawError) img.alt = "screen stream error";
   };
-  
+
   ws.onclose = () => {
-    img.alt = "screen stream closed";
+    if (!sawError) img.alt = "screen stream closed";
   };
 })();

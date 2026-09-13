@@ -57,9 +57,9 @@ def register_websockets(app):
                         if not data:
                             return
                         await websocket.send_text(data.decode(errors="replace"))
+                    elif channel.closed:
+                        return
                     else:
-                        if channel.closed or channel.exit_status_ready():
-                            return
                         await asyncio.sleep(0.02)
             except Exception:
                 pass

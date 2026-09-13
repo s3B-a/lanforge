@@ -35,9 +35,15 @@
   ws.onerror = () => appendTerminal("\n[connection error]\n");
 
   cmdInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && cmdInput.value.trim() && ws.readyState === WebSocket.OPEN) {
-      ws.send(cmdInput.value + "\n");
-      cmdInput.value = "";
+    if (e.key !== "Enter") return;
+    if (!cmdInput.value.trim()) return;
+
+    if (ws.readyState !== WebSocket.OPEN) {
+      appendTerminal(`\n[can't send, connection isn't open (state ${ws.readyState})]\n`);
+      return;
     }
+
+    ws.send(cmdInput.value + "\n");
+    cmdInput.value = "";
   });
 })();

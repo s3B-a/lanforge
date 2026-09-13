@@ -286,7 +286,7 @@ function toggleConvMenu(btnEl, itemEl, conv) {
   if (top + menuRect.height > window.innerHeight - 4) {
     top = rect.top - menuRect.height - 4;
   }
-  
+
   menu.style.left = `${left}px`;
   menu.style.top = `${top}px`;
 }
@@ -396,11 +396,23 @@ async function selectConversation(id) {
   }
 }
 
+function findEmptyConversation() {
+  return conversationsCache.find((c) => !c.title || c.title === "New chat");
+}
+
+async function getOrCreateEmptyConversation(deviceId) {
+  const existing = findEmptyConversation();
+  if (existing) return existing;
+
+  const entry = await apiPost(`/llm/${encodeURIComponent(deviceId)}/conversations`, {});
+  conversationsCache.unshift(entry);
+  return entry;
+}
+
 newChatBtn.addEventListener("click", async () => {
   const deviceId = deviceSelect.value;
   if (!deviceId) return;
-  const entry = await apiPost(`/llm/${encodeURIComponent(deviceId)}/conversations`, {});
-  conversationsCache.unshift(entry);
+  const entry = await getOrCreateEmptyConversation(deviceId);
   await selectConversation(entry.id);
 });
 
@@ -418,8 +430,7 @@ async function deleteConversation(id) {
 
   conversationsCache = conversationsCache.filter((c) => c.id !== id);
 
-  const entry = await apiPost(`/llm/${encodeURIComponent(deviceId)}/conversations`, {});
-  conversationsCache.unshift(entry);
+  const entry = await getOrCreateEmptyConversation(deviceId);
   await selectConversation(entry.id);
 }
 

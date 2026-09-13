@@ -301,7 +301,7 @@ caches it in that browser's `localStorage`.
 your devices, the hub drives it entirely over the same SSH connection
 everything else uses. `ssh_client.open_screen_stream()` runs `ffmpeg`
 directly on the remote device (`gdigrab` capturing the desktop), piping a
-raw MJPEG stream back over that SSH channel. The `/devices/:id/screen`
+raw MJPEG stream back over that SSH channel. The `/ws/screen/:id`
 websocket scans that stream for JPEG start/end markers, forwarding each
 complete frame to the browser as a binary message; `screen.js` turns each
 one into a `Blob` URL and swaps the `<img>` src, no change needed there
@@ -353,9 +353,9 @@ env vars, or `cfg\.env`
 | `PATCH /devices/:id` | Merge fields into an existing device (used by `ssh_manager.py update`) |
 | `POST /devices/:id/heartbeat` | Used by `heartbeat_agent.py` to report current IP |
 | `GET /devices/:id/stats` | Live CPU/RAM/disk/network/GPU snapshot of an SSH device |
-| `WS /devices/:id/screen?token=` | Live JPEG frame stream of the device's monitor(s), composited into one image |
+| `WS /ws/screen/:id?token=` | Live JPEG frame stream of the device's monitor(s), composited into one image |
 | `POST /shell/:id/exec` | Run a one-shot command over SSH |
-| `WS /shell/:id/session?token=` | Interactive terminal session |
+| `WS /ws/shell/:id?token=` | Interactive terminal session |
 | `GET /files/:id/list?path=` | List a directory over SFTP |
 | `GET /files/:id/download?path=` | Read a file (base64 in the JSON response) |
 | `POST /files/:id/upload` | Write a file (base64 in the JSON body) |

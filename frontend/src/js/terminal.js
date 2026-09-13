@@ -18,7 +18,7 @@
     return;
   }
 
-  const ws = new WebSocket(wsUrl(`/shell/${encodeURIComponent(deviceId)}/session`));
+  const ws = new WebSocket(wsUrl(`/ws/shell/${encodeURIComponent(deviceId)}`));
 
   ws.onopen = () => appendTerminal(`connected to ${deviceId}\n`);
   ws.onmessage = (event) => appendTerminal(event.data);

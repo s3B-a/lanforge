@@ -37,7 +37,7 @@ async def _read_frames(channel):
                     del buffer[:-1]
                 
                 break
-            
+
             end = buffer.find(_JPEG_EOI, start + 2)
             if end == -1:
                 if start > 0:
@@ -59,7 +59,7 @@ def register_websockets(app):
     """Websocket routes are registered directly on the app (SubRouter
     websocket support isn't guaranteed)"""
 
-    @app.websocket("/devices/:device_id/screen")
+    @app.websocket("/ws/screen/:device_id")
     async def screen_session(websocket, device_id: str = "", token: str = ""):
         if token != HUB_TOKEN:
             await _safe_close(websocket)

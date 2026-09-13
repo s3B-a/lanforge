@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chat</title>
+  <link rel="stylesheet" href="/css/shared.css">
+</head>
+<body>
+  <div class="chat-page">
+    <div class="chat-header">
+      <select id="device-select"></select>
+      <select id="model-select"></select>
+      <span id="chat-status" style="color: var(--text-dim); font-size: 12px;"></span>
+    </div>
+    <div id="messages" class="chat-messages">
+      <div class="empty-state">Pick a device and model, then say hello.</div>
+    </div>
+    <div id="image-preview-row" class="image-preview-row"></div>
+    <div class="chat-input-area">
+      <button id="upload-btn" class="icon-btn" title="attach image" type="button">+</button>
+      <input id="file-input" type="file" accept="image/*" multiple hidden>
+      <textarea id="chat-input" rows="1" placeholder="Message the model..."></textarea>
+      <button id="send-btn" class="send-btn" type="button">Send</button>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/chat.js"></script>
+</body>
+</html>

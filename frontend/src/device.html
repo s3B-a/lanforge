@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Device</title>
+  <link rel="stylesheet" href="/css/shared.css">
+</head>
+<body>
+  <div class="page" style="max-width: none;">
+    <h2 id="device-title">Device</h2>
+    <div class="split">
+      <div>
+        <h3>Terminal</h3>
+        <div id="terminal" class="terminal"></div>
+        <div class="terminal-input">
+          <input id="terminal-cmd" type="text" placeholder="type a command and press Enter" autocomplete="off">
+        </div>
+      </div>
+      <div>
+        <h3>Screen</h3>
+        <div class="screen-view">
+          <img id="screen-img" alt="waiting for frames...">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/terminal.js"></script>
+  <script src="/js/screen.js"></script>
+</body>
+</html>

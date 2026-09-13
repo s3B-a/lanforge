@@ -16,7 +16,7 @@ tool.
 |---|---|
 | `backend/` - hub API (devices, shell, files, llm, monitor) | Built |
 | `scripts/` - firewall rule + Windows service install + device heartbeat agent | Built |
-| `frontend/` - browser dashboard (chat / devices / terminal) | Not started |
+| `frontend/` - browser dashboard (chat / devices / terminal + screen) | Built |
 | `cli/` - terminal client (`hub_cli.py`) | Built |
 | `ssh/ssh_manager.py` - key generation/provisioning helper | Built |
 | Other Device Control (beyond presence detection) | Not started |
@@ -281,6 +281,33 @@ Invoke-RestMethod -Uri http://<hub-host>:8080/devices -Headers @{ Authorization 
 Returns every device with an `online` field computed live (recent heartbeat,
 or a live TCP probe for anything else).
 
+## Frontend (`frontend/src/`)
+
+Plain HTML/CSS/JS. The backend serves it
+directly (`app.serve_directory` in `main.py`), so once the hub is running,
+just open `http://<hub-host>:8080/` in a browser.
+The first API call on each page prompts once for `HUB_TOKEN` and
+caches it in that browser's `localStorage`.
+
+- **`dashboard.html`**: the hub's own stats plus a card
+  per registered device, live CPU/RAM/disk/GPU for online SSH devices, an
+  online/offline badge for presence devices. Click an SSH device's card to
+  open it.
+- **`device.html?id=<device-id>`**: split view. One side has a terminal, other side is a live view of that machine's screen(s).
+- **`chat.html`**: pick a registered LLM device and one of its installed
+  models, then chat, responses stream in token-by-token.
+
+**How the screen view works**: there's no screen-sharing agent running on
+your devices, the hub drives it entirely over the same SSH connection
+everything else uses. `ssh_client.open_screen_stream()` starts a
+long-running PowerShell loop on the remote device that composites every monitor
+into one bitmap with `System.Drawing`, JPEG-encodes it, and writes
+`[4-byte length][JPEG bytes]` frames straight to its stdout roughly every
+200ms. The `/devices/:id/screen` websocket reads that stream and forwards
+each frame to the browser as a binary message. It's a rolling sequence of full
+JPEGs so expect a few frames a second and some lag
+rather than a 60fps feed.
+
 ## CLI (`cli/hub_cli.py`)
 
 A terminal client for the hub API. Shares the backend's venv (only extra
@@ -319,6 +346,7 @@ env vars, or `cfg\.env`
 | `PATCH /devices/:id` | Merge fields into an existing device (used by `ssh_manager.py update`) |
 | `POST /devices/:id/heartbeat` | Used by `heartbeat_agent.py` to report current IP |
 | `GET /devices/:id/stats` | Live CPU/RAM/disk/network/GPU snapshot of an SSH device |
+| `WS /devices/:id/screen?token=` | Live JPEG frame stream of the device's monitor(s), composited into one image |
 | `POST /shell/:id/exec` | Run a one-shot command over SSH |
 | `WS /shell/:id/session?token=` | Interactive terminal session |
 | `GET /files/:id/list?path=` | List a directory over SFTP |

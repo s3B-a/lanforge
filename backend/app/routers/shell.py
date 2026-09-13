@@ -1,4 +1,7 @@
+import asyncio
+
 from robyn import Request, Response, SubRouter, jsonify
+from robyn.ws import WebSocketDisconnect
 
 from app.core import devices_store
 from app.core.config import HUB_TOKEN
@@ -43,18 +46,40 @@ def register_websockets(app):
             return ""
 
         client, channel = ssh_client.open_interactive_shell(device)
+
+        async def _pump_output():
+            """Forwards whatever the remote shell prints, on its own
+            schedule, independent of when the user types something next."""
+            try:
+                while True:
+                    if channel.recv_ready():
+                        data = channel.recv(4096)
+                        if not data:
+                            return
+                        await websocket.send_text(data.decode(errors="replace"))
+                    else:
+                        if channel.closed or channel.exit_status_ready():
+                            return
+                        await asyncio.sleep(0.02)
+            except Exception:
+                pass
+
+        output_task = asyncio.create_task(_pump_output())
         try:
             while True:
                 data = await websocket.receive_text()
-                if data is None:
-                    break
                 channel.send(data)
-                while channel.recv_ready():
-                    output = channel.recv(4096).decode(errors="replace")
-                    await websocket.send_text(output)
+        except WebSocketDisconnect:
+            pass
         except Exception:
             pass
         finally:
+            output_task.cancel()
+            try:
+                await output_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            channel.close()
             client.close()
         return ""
 

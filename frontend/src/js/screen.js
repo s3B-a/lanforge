@@ -12,6 +12,16 @@
   ws.binaryType = "arraybuffer";
 
   ws.onmessage = (event) => {
+    if (typeof event.data === "string") {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.error) img.alt = payload.error;
+      } catch (e) {
+        img.alt = "screen stream error";
+      }
+      return;
+    }
+
     const blob = new Blob([event.data], { type: "image/jpeg" });
     const url = URL.createObjectURL(blob);
     img.src = url;

@@ -194,7 +194,7 @@ def open_screen_stream(device: dict, framerate: int = 15, quality: int = 5):
     `quality` is ffmpeg's mjpeg -q:v scale: 2 (best) - 31 (worst)."""
     client = _connect(device)
     command = (
-        f"ffmpeg -f gdigrab -framerate {framerate} -i desktop "
+        f"ffmpeg -hide_banner -loglevel error -f gdigrab -framerate {framerate} -i desktop "
         f"-f image2pipe -vcodec mjpeg -q:v {quality} -"
     )
     transport = client.get_transport()

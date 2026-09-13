@@ -40,3 +40,6 @@ logs/
 # OS
 *.exe
 nssm/
+
+# Personal Scripts
+scripts/heartbeat_console.ps1

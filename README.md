@@ -251,8 +251,9 @@ the LLM rig is running. To put a model on that machine (for our example:
      (`--host`, `--ssh-user`, `--ssh-port`, `--name`, `--ollama-port`)
      without touching the rest of the device's entry. `register` can't be
      reused here, the hub rejects registering an ID that already exists.
-5. From the hub: `POST /llm/<device-id>/chat` with
-   `{"model": "qwen3.8:27b-uncensored", "messages": [...]}` (see the API
+5. From the hub: create a chat with `POST /llm/<device-id>/conversations`,
+   then `POST /llm/<device-id>/conversations/<conversation-id>/chat` with
+   `{"model": "qwen3.8:27b-uncensored", "message": "..."}` (see the API
    table below).
 
 ### A presence-only device (anything that can't run a script)
@@ -360,12 +361,15 @@ env vars, or `cfg\.env`
 | `GET /files/:id/download?path=` | Read a file (base64 in the JSON response) |
 | `POST /files/:id/upload` | Write a file (base64 in the JSON body) |
 | `GET /llm/:id/models` | List models available on that device's Ollama |
-| `GET /llm/:id/history` | Persisted conversation for that device, plus `generating` and `queued` counters |
-| `DELETE /llm/:id/history` | Clear that device's persisted conversation |
-| `POST /llm/:id/chat` | Send one message (`{"model", "message", "images"?}`); streams via SSE unless `"stream": false`. Messages for the same device are queued and answered one at a time, in order, so sending a second message before the first finishes never cuts off the first response |
-| `POST /llm/:id/chat/interrupt` | Stop whatever generation is currently running for that device right away. Anything else still queued behind it is unaffected |
-| `POST /llm/:id/compact` | Ask the model to summarize the conversation so far and replace the stored history with just that summary, to shrink the context sent on future turns. Body: `{"model"}`. Fails with 409 while a generation is in progress |
-| `GET /llm/:id/chat/tail?token=` | Reconnect to a still-in-progress generation for that device (used automatically by `chat.html` on load) |
+| `GET /llm/:id/conversations` | List that device's chats (id, title, timestamps), newest first |
+| `POST /llm/:id/conversations` | Start a new chat on that device. Body: `{"title"?}` |
+| `DELETE /llm/:id/conversations/:cid` | Delete a chat entirely. Fails with 409 while it's generating |
+| `GET /llm/:id/conversations/:cid/history` | That chat's persisted messages, plus `generating` and `queued` counters |
+| `DELETE /llm/:id/conversations/:cid/history` | Clear a chat's messages, keeping the chat itself |
+| `POST /llm/:id/conversations/:cid/chat` | Send one message (`{"model", "message", "images"?}`); streams via SSE unless `"stream": false`. Messages within the same chat are queued and answered one at a time |
+| `POST /llm/:id/conversations/:cid/chat/interrupt` | Stop whatever generation is currently running in that chat right away |
+| `POST /llm/:id/conversations/:cid/compact` | Ask the model to summarize that chat so far and replace its stored history with just that summary, to shrink the context sent on future turns. Body: `{"model"}`. Fails with 409 while a generation is in progress |
+| `GET /llm/:id/conversations/:cid/chat/tail?token=` | Reconnect to a still-in-progress generation in that chat (used automatically by `chat.html` on load) |
 | `GET /system/stats` | CPU/memory/disk/network snapshot of the hub machine |
 | `WS /system/stats/stream?token=` | Same stats, pushed once a second |
 

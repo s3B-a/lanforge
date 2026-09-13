@@ -2,8 +2,12 @@ injectNav("chat");
 
 const deviceSelect = document.getElementById("device-select");
 const modelSelect = document.getElementById("model-select");
-const clearBtn = document.getElementById("clear-btn");
+const deviceStatsEl = document.getElementById("device-stats");
+const newChatBtn = document.getElementById("new-chat-btn");
+const conversationListEl = document.getElementById("conversation-list");
+const conversationTitleEl = document.getElementById("conversation-title");
 const compactBtn = document.getElementById("compact-btn");
+const clearBtn = document.getElementById("clear-btn");
 const stopBtn = document.getElementById("stop-btn");
 const messagesEl = document.getElementById("messages");
 const inputEl = document.getElementById("chat-input");
@@ -14,8 +18,17 @@ const previewRow = document.getElementById("image-preview-row");
 const statusEl = document.getElementById("chat-status");
 
 let pendingImages = []; // { dataUrl, base64 }
-let deviceEpoch = 0; // bumped on device switch, so old streams stop touching the DOM
-let pendingCount = 0; // in-flight (queued or streaming) generations for the current device
+let viewEpoch = 0;
+let statsEpoch = 0;
+let pendingCount = 0;
+let conversationId = null;
+let conversationsCache = [];
+let statsIntervalId = null;
+let statsLoadInFlight = false;
+
+function apiBase() {
+  return `/llm/${encodeURIComponent(deviceSelect.value)}/conversations/${encodeURIComponent(conversationId)}`;
+}
 
 function clearEmptyState() {
   if (messagesEl.children.length === 1 && messagesEl.children[0].classList.contains("empty-state")) {
@@ -146,7 +159,7 @@ fileInput.addEventListener("change", () => {
 function renderHistory(historyMessages) {
   messagesEl.innerHTML = "";
   if (historyMessages.length === 0) {
-    messagesEl.innerHTML = '<div class="empty-state">Pick a device and model, then say hello.</div>';
+    messagesEl.innerHTML = '<div class="empty-state">Say hello.</div>';
     return;
   }
 
@@ -171,6 +184,104 @@ function renderHistory(historyMessages) {
   }
 
   messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+async function loadDeviceStats(deviceId, epoch) {
+  if (statsLoadInFlight) return;
+  statsLoadInFlight = true;
+  try {
+    const stats = await apiGet(`/devices/${encodeURIComponent(deviceId)}/stats`);
+    if (epoch === statsEpoch) deviceStatsEl.innerHTML = remoteStatsHtml(stats);
+  } catch (e) {
+    if (epoch === statsEpoch) deviceStatsEl.innerHTML = `<div class="empty-state">${e.message}</div>`;
+  } finally {
+    statsLoadInFlight = false;
+  }
+}
+
+function startStatsPolling(deviceId, epoch) {
+  if (statsIntervalId) clearInterval(statsIntervalId);
+  deviceStatsEl.innerHTML = '<div class="empty-state">loading...</div>';
+  loadDeviceStats(deviceId, epoch);
+  statsIntervalId = setInterval(() => loadDeviceStats(deviceId, epoch), 3000);
+}
+
+function renderConversationList() {
+  conversationListEl.innerHTML = "";
+  for (const conv of conversationsCache) {
+    const el = document.createElement("div");
+    el.className = "conversation-item" + (conv.id === conversationId ? " active" : "");
+    el.innerHTML = `<span class="conv-title">${conv.title || "New chat"}</span><button class="conv-delete" type="button" title="delete this chat">x</button>`;
+    el.querySelector(".conv-title").addEventListener("click", () => selectConversation(conv.id));
+    el.querySelector(".conv-delete").addEventListener("click", (e) => {
+      e.stopPropagation();
+      deleteConversation(conv.id);
+    });
+
+    conversationListEl.appendChild(el);
+  }
+}
+
+async function loadConversations(deviceId) {
+  const data = await apiGet(`/llm/${encodeURIComponent(deviceId)}/conversations`);
+  conversationsCache = data.conversations || [];
+}
+
+async function selectConversation(id) {
+  viewEpoch++;
+  const epoch = viewEpoch;
+  conversationId = id;
+  pendingCount = 0;
+  updateStopVisibility();
+  renderConversationList();
+
+  const conv = conversationsCache.find((c) => c.id === id);
+  conversationTitleEl.textContent = conv ? conv.title || "New chat" : "";
+
+  const data = await apiGet(`${apiBase()}/history`);
+  if (epoch !== viewEpoch) return;
+  renderHistory(data.messages);
+
+  if (data.generating || data.queued > 0) {
+    statusEl.textContent = data.queued > 0 ? `resuming, ${data.queued} more queued...` : "resuming...";
+    const assistantEl = addAssistantMessage();
+    pendingCount++;
+    updateStopVisibility();
+    await readStream(`${apiBase()}/chat/tail`, "GET", null, assistantEl, epoch);
+    if (epoch === viewEpoch) statusEl.textContent = "";
+  }
+}
+
+newChatBtn.addEventListener("click", async () => {
+  const deviceId = deviceSelect.value;
+  if (!deviceId) return;
+  const entry = await apiPost(`/llm/${encodeURIComponent(deviceId)}/conversations`, {});
+  conversationsCache.unshift(entry);
+  await selectConversation(entry.id);
+});
+
+async function deleteConversation(id) {
+  const deviceId = deviceSelect.value;
+  if (!deviceId) return;
+  if (!confirm("Delete this chat? This can't be undone.")) return;
+
+  try {
+    await apiFetch(`/llm/${encodeURIComponent(deviceId)}/conversations/${encodeURIComponent(id)}`, { method: "DELETE" });
+  } catch (e) {
+    statusEl.textContent = `could not delete: ${e.message}`;
+    return;
+  }
+
+  conversationsCache = conversationsCache.filter((c) => c.id !== id);
+  if (id === conversationId) {
+    if (conversationsCache.length === 0) {
+      const entry = await apiPost(`/llm/${encodeURIComponent(deviceId)}/conversations`, {});
+      conversationsCache = [entry];
+    }
+    await selectConversation(conversationsCache[0].id);
+  } else {
+    renderConversationList();
+  }
 }
 
 async function loadDevices() {
@@ -202,42 +313,45 @@ async function loadModels() {
 }
 
 async function onDeviceChange() {
-  deviceEpoch++;
-  const epoch = deviceEpoch;
+  viewEpoch++;
+  statsEpoch++;
+  const epoch = viewEpoch;
+  const statEpoch = statsEpoch;
   pendingCount = 0;
   updateStopVisibility();
+  conversationId = null;
 
-  await loadModels();
   const deviceId = deviceSelect.value;
-  if (!deviceId || epoch !== deviceEpoch) return;
+  if (!deviceId) {
+    if (statsIntervalId) clearInterval(statsIntervalId);
+    deviceStatsEl.innerHTML = '<div class="empty-state">select a device</div>';
+    return;
+  }
 
-  const data = await apiGet(`/llm/${encodeURIComponent(deviceId)}/history`);
-  if (epoch !== deviceEpoch) return;
-  renderHistory(data.messages);
+  startStatsPolling(deviceId, statEpoch);
+  await loadModels();
+  if (epoch !== viewEpoch) return;
 
-  if (data.generating || data.queued > 0) {
-    statusEl.textContent = data.queued > 0 ? `resuming, ${data.queued} more queued...` : "resuming...";
-    const assistantEl = addAssistantMessage();
-    pendingCount++;
-    updateStopVisibility();
-    await readStream(`/llm/${encodeURIComponent(deviceId)}/chat/tail`, "GET", null, assistantEl, epoch);
-    if (epoch === deviceEpoch) statusEl.textContent = "";
+  await loadConversations(deviceId);
+  if (epoch !== viewEpoch) return;
+  renderConversationList();
+
+  if (conversationsCache.length) {
+    await selectConversation(conversationsCache[0].id);
   }
 }
 
 deviceSelect.addEventListener("change", onDeviceChange);
 
 clearBtn.addEventListener("click", async () => {
-  const deviceId = deviceSelect.value;
-  if (!deviceId) return;
-  await apiFetch(`/llm/${encodeURIComponent(deviceId)}/history`, { method: "DELETE" });
+  if (!deviceSelect.value || !conversationId) return;
+  await apiFetch(`${apiBase()}/history`, { method: "DELETE" });
   renderHistory([]);
 });
 
 compactBtn.addEventListener("click", async () => {
-  const deviceId = deviceSelect.value;
   const model = modelSelect.value;
-  if (!deviceId || !model) return;
+  if (!deviceSelect.value || !conversationId || !model) return;
   if (pendingCount > 0) {
     statusEl.textContent = "wait for the current response to finish before compacting";
 
@@ -246,9 +360,9 @@ compactBtn.addEventListener("click", async () => {
 
   statusEl.textContent = "compacting...";
   try {
-    const result = await apiPost(`/llm/${encodeURIComponent(deviceId)}/compact`, { model });
+    const result = await apiPost(`${apiBase()}/compact`, { model });
     if (result.compacted) {
-      const data = await apiGet(`/llm/${encodeURIComponent(deviceId)}/history`);
+      const data = await apiGet(`${apiBase()}/history`);
       renderHistory(data.messages);
       statusEl.textContent = "history compacted";
     } else {
@@ -260,10 +374,9 @@ compactBtn.addEventListener("click", async () => {
 });
 
 stopBtn.addEventListener("click", async () => {
-  const deviceId = deviceSelect.value;
-  if (!deviceId) return;
+  if (!deviceSelect.value || !conversationId) return;
   try {
-    await apiFetch(`/llm/${encodeURIComponent(deviceId)}/chat/interrupt`, { method: "POST" });
+    await apiFetch(`${apiBase()}/chat/interrupt`, { method: "POST" });
   } catch (e) {
     // ignore
   }
@@ -277,7 +390,7 @@ async function readStream(path, method, body, assistantEl, epoch) {
   try {
     resp = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
   } catch (e) {
-    if (epoch === deviceEpoch) setAssistantStatus(assistantEl, `[error: ${e.message}]`);
+    if (epoch === viewEpoch) setAssistantStatus(assistantEl, `[error: ${e.message}]`);
     pendingCount = Math.max(0, pendingCount - 1);
     updateStopVisibility();
 
@@ -285,7 +398,7 @@ async function readStream(path, method, body, assistantEl, epoch) {
   }
 
   if (!resp.ok || !resp.body) {
-    if (epoch === deviceEpoch) setAssistantStatus(assistantEl, `[error: hub returned ${resp.status}]`);
+    if (epoch === viewEpoch) setAssistantStatus(assistantEl, `[error: hub returned ${resp.status}]`);
     pendingCount = Math.max(0, pendingCount - 1);
     updateStopVisibility();
 
@@ -322,7 +435,7 @@ async function readStream(path, method, body, assistantEl, epoch) {
         continue;
       }
 
-      if (epoch !== deviceEpoch) continue;
+      if (epoch !== viewEpoch) continue;
 
       if (payload.queued) {
         if (full === "") setAssistantStatus(assistantEl, "queued...");
@@ -358,17 +471,16 @@ async function readStream(path, method, body, assistantEl, epoch) {
     }
   }
 
-  if (epoch === deviceEpoch) {
+  if (epoch === viewEpoch) {
     pendingCount = Math.max(0, pendingCount - 1);
     updateStopVisibility();
   }
 }
 
 async function send() {
-  const deviceId = deviceSelect.value;
   const model = modelSelect.value;
   const text = inputEl.value.trim();
-  if (!deviceId || !model || (!text && pendingImages.length === 0)) return;
+  if (!deviceSelect.value || !conversationId || !model || (!text && pendingImages.length === 0)) return;
 
   const images = pendingImages.map((i) => i.dataUrl);
   addMessage("user", text, images);
@@ -380,11 +492,19 @@ async function send() {
   inputEl.value = "";
 
   const assistantEl = addAssistantMessage();
-  const epoch = deviceEpoch;
+  const epoch = viewEpoch;
   pendingCount++;
   updateStopVisibility();
 
-  await readStream(`/llm/${encodeURIComponent(deviceId)}/chat`, "POST", payload, assistantEl, epoch);
+  await readStream(`${apiBase()}/chat`, "POST", payload, assistantEl, epoch);
+  if (epoch === viewEpoch && deviceSelect.value) {
+    await loadConversations(deviceSelect.value);
+    if (epoch === viewEpoch) {
+      renderConversationList();
+      const conv = conversationsCache.find((c) => c.id === conversationId);
+      if (conv) conversationTitleEl.textContent = conv.title || "New chat";
+    }
+  }
 }
 
 sendBtn.addEventListener("click", send);

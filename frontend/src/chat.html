@@ -7,28 +7,50 @@
   <link rel="stylesheet" href="/app/css/shared.css">
 </head>
 <body>
-  <div class="chat-page">
-    <div class="chat-header">
-      <select id="device-select"></select>
-      <select id="model-select"></select>
-      <button id="compact-btn" class="btn" type="button" title="summarize history so far and drop the rest, to shrink context">Compact</button>
-      <button id="clear-btn" class="btn" type="button" title="clear this device's remembered history">Clear history</button>
-      <button id="stop-btn" class="btn stop-btn" type="button" hidden title="stop the model mid-response">Stop generating</button>
-      <span id="chat-status" style="color: var(--text-dim); font-size: 12px;"></span>
-    </div>
-    <div id="messages" class="chat-messages">
-      <div class="empty-state">Pick a device and model, then say hello.</div>
-    </div>
-    <div id="image-preview-row" class="image-preview-row"></div>
-    <div class="chat-input-area">
-      <button id="upload-btn" class="icon-btn" title="attach image" type="button">+</button>
-      <input id="file-input" type="file" accept="image/*" multiple hidden>
-      <textarea id="chat-input" rows="1" placeholder="Message the model..."></textarea>
-      <button id="send-btn" class="send-btn" type="button">Send</button>
-    </div>
+  <div class="chat-layout">
+    <aside class="chat-sidebar">
+      <div class="sidebar-section">
+        <select id="device-select"></select>
+        <select id="model-select"></select>
+      </div>
+
+      <div class="sidebar-section">
+        <h4>Status</h4>
+        <div id="device-stats" class="card device-stats-card"><div class="empty-state">select a device</div></div>
+      </div>
+
+      <div class="sidebar-section conversations-section">
+        <div class="conversations-header">
+          <h4>Chats</h4>
+          <button id="new-chat-btn" class="icon-btn" title="start a new chat" type="button">+</button>
+        </div>
+        <div id="conversation-list" class="conversation-list"></div>
+      </div>
+    </aside>
+
+    <main class="chat-main">
+      <div class="chat-header">
+        <span id="conversation-title" class="conversation-title"></span>
+        <button id="compact-btn" class="btn" type="button" title="summarize history so far and drop the rest, to shrink context">Compact</button>
+        <button id="clear-btn" class="btn" type="button" title="clear this chat's remembered history">Clear history</button>
+        <button id="stop-btn" class="btn stop-btn" type="button" hidden title="stop the model mid-response">Stop generating</button>
+        <span id="chat-status" style="color: var(--text-dim); font-size: 12px;"></span>
+      </div>
+      <div id="messages" class="chat-messages">
+        <div class="empty-state">Pick a device and model, then say hello.</div>
+      </div>
+      <div id="image-preview-row" class="image-preview-row"></div>
+      <div class="chat-input-area">
+        <button id="upload-btn" class="icon-btn" title="attach image" type="button">+</button>
+        <input id="file-input" type="file" accept="image/*" multiple hidden>
+        <textarea id="chat-input" rows="1" placeholder="Message the model..."></textarea>
+        <button id="send-btn" class="send-btn" type="button">Send</button>
+      </div>
+    </main>
   </div>
 
   <script src="/app/js/api.js"></script>
+  <script src="/app/js/stats.js"></script>
   <script src="/app/js/markdown.js"></script>
   <script src="/app/js/chat.js"></script>
 </body>

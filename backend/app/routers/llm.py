@@ -17,6 +17,9 @@ def _llm_device_or_none(device_id: str):
 
     return device
 
+def _key(device_id: str, conversation_id: str) -> str:
+    return f"{device_id}::{conversation_id}"
+
 class _Generation:
     def __init__(self):
         self.chunks: list[str] = []
@@ -42,34 +45,80 @@ async def models(request: Request):
     device = _llm_device_or_none(request.path_params["device_id"])
     if device is None:
         return Response(status_code=404, description="llm device not found", headers={})
-    
+
     data = await llm_client.list_models(device)
 
     return jsonify(data)
 
-@llm_router.get("/:device_id/history", auth_required=True)
-async def history(request: Request):
+@llm_router.get("/:device_id/conversations", auth_required=True)
+async def list_conversations(request: Request):
     device_id = request.path_params["device_id"]
     if _llm_device_or_none(device_id) is None:
         return Response(status_code=404, description="llm device not found", headers={})
 
-    gen = _generations.get(device_id)
-    queue = _queues.get(device_id)
+    return jsonify({"conversations": conversations.list_conversations(device_id)})
+
+@llm_router.post("/:device_id/conversations", auth_required=True)
+async def create_conversation(request: Request):
+    device_id = request.path_params["device_id"]
+    if _llm_device_or_none(device_id) is None:
+        return Response(status_code=404, description="llm device not found", headers={})
+
+    body = request.json() or {}
+    entry = conversations.create_conversation(device_id, body.get("title"))
+
+    return jsonify(entry)
+
+@llm_router.delete("/:device_id/conversations/:conversation_id", auth_required=True)
+async def delete_conversation(request: Request):
+    device_id = request.path_params["device_id"]
+    conversation_id = request.path_params["conversation_id"]
+    if _llm_device_or_none(device_id) is None:
+        return Response(status_code=404, description="llm device not found", headers={})
+
+    key = _key(device_id, conversation_id)
+    gen = _generations.get(key)
+    if gen is not None and not gen.done:
+        return Response(status_code=409, description="a generation is currently in progress in this chat", headers={})
+
+    conversations.delete_conversation(device_id, conversation_id)
+    _generations.pop(key, None)
+    _queues.pop(key, None)
+
+    return jsonify({"deleted": True})
+
+@llm_router.get("/:device_id/conversations/:conversation_id/history", auth_required=True)
+async def history(request: Request):
+    device_id = request.path_params["device_id"]
+    conversation_id = request.path_params["conversation_id"]
+    if _llm_device_or_none(device_id) is None:
+        return Response(status_code=404, description="llm device not found", headers={})
+
+    if not conversations.conversation_exists(device_id, conversation_id):
+        return Response(status_code=404, description="conversation not found", headers={})
+
+    key = _key(device_id, conversation_id)
+    gen = _generations.get(key)
+    queue = _queues.get(key)
     return jsonify(
         {
-            "messages": conversations.load_messages(device_id),
+            "messages": conversations.load_messages(device_id, conversation_id),
             "generating": gen is not None and not gen.done,
             "queued": len(queue) if queue else 0,
         }
     )
 
-@llm_router.delete("/:device_id/history", auth_required=True)
+@llm_router.delete("/:device_id/conversations/:conversation_id/history", auth_required=True)
 async def clear_history(request: Request):
     device_id = request.path_params["device_id"]
+    conversation_id = request.path_params["conversation_id"]
     if _llm_device_or_none(device_id) is None:
         return Response(status_code=404, description="llm device not found", headers={})
     
-    conversations.clear(device_id)
+    if not conversations.conversation_exists(device_id, conversation_id):
+        return Response(status_code=404, description="conversation not found", headers={})
+    
+    conversations.clear(device_id, conversation_id)
     return jsonify({"cleared": True})
 
 _EMPTY_RESPONSE_TEXT = "(no response was generated for this turn)"
@@ -91,10 +140,11 @@ def _for_api(messages: list[dict]) -> list[dict]:
 
     return cleaned
 
-async def _run_generation(device: dict, model: str, device_id: str, user_message: dict, gen: "_Generation") -> None:
-    conversations.append_message(device_id, user_message)
+async def _run_generation(device: dict, model: str, device_id: str, conversation_id: str, user_message: dict, gen: "_Generation") -> None:
+    conversations.append_message(device_id, conversation_id, user_message)
     try:
-        async for line in llm_client.stream_chat(device, model, _for_api(conversations.load_messages(device_id))):
+        messages = _for_api(conversations.load_messages(device_id, conversation_id))
+        async for line in llm_client.stream_chat(device, model, messages):
             if gen.cancelled:
                 break
 
@@ -137,26 +187,27 @@ async def _run_generation(device: dict, model: str, device_id: str, user_message
                 assistant_message["stats"] = gen.stats
             if gen.cancelled:
                 assistant_message["interrupted"] = True
-            conversations.append_message(device_id, assistant_message)
+            conversations.append_message(device_id, conversation_id, assistant_message)
 
-async def _device_worker(device: dict, device_id: str) -> None:
-    queue = _queues.setdefault(device_id, deque())
+async def _chat_worker(device: dict, device_id: str, conversation_id: str, key: str) -> None:
+    queue = _queues.setdefault(key, deque())
     try:
         while queue:
             job = queue.popleft()
-            _generations[device_id] = job.gen
-            await _run_generation(device, job.model, device_id, job.user_message, job.gen)
+            _generations[key] = job.gen
+            await _run_generation(device, job.model, device_id, conversation_id, job.user_message, job.gen)
     finally:
-        _workers.pop(device_id, None)
+        _workers.pop(key, None)
 
-def _enqueue(device: dict, device_id: str, model: str, user_message: dict) -> "_Generation":
+def _enqueue(device: dict, device_id: str, conversation_id: str, model: str, user_message: dict) -> "_Generation":
+    key = _key(device_id, conversation_id)
     gen = _Generation()
-    queue = _queues.setdefault(device_id, deque())
+    queue = _queues.setdefault(key, deque())
     queue.append(_Job(model, user_message, gen))
 
-    existing = _workers.get(device_id)
+    existing = _workers.get(key)
     if existing is None or existing.done():
-        _workers[device_id] = asyncio.create_task(_device_worker(device, device_id))
+        _workers[key] = asyncio.create_task(_chat_worker(device, device_id, conversation_id, key))
 
     return gen
 
@@ -181,12 +232,15 @@ async def _empty_stream():
     if False:
         yield ""
 
-@llm_router.post("/:device_id/chat", auth_required=True)
+@llm_router.post("/:device_id/conversations/:conversation_id/chat", auth_required=True)
 async def chat(request: Request):
     device_id = request.path_params["device_id"]
+    conversation_id = request.path_params["conversation_id"]
     device = _llm_device_or_none(device_id)
     if device is None:
         return Response(status_code=404, description="llm device not found", headers={})
+    if not conversations.conversation_exists(device_id, conversation_id):
+        return Response(status_code=404, description="conversation not found", headers={})
 
     body = request.json()
     model = body.get("model")
@@ -200,47 +254,52 @@ async def chat(request: Request):
         user_message["images"] = images
 
     if not body.get("stream", True):
-        conversations.append_message(device_id, user_message)
+        conversations.append_message(device_id, conversation_id, user_message)
         try:
-            data = await llm_client.chat(device, model, _for_api(conversations.load_messages(device_id)))
+            messages = _for_api(conversations.load_messages(device_id, conversation_id))
+            data = await llm_client.chat(device, model, messages)
         except httpx.HTTPError as exc:
             return Response(status_code=502, description=f"llm unreachable: {exc}", headers={})
 
         reply = data.get("message", {}).get("content", "")
         if reply:
-            conversations.append_message(device_id, {"role": "assistant", "content": reply})
+            conversations.append_message(device_id, conversation_id, {"role": "assistant", "content": reply})
 
         return jsonify(data)
 
-    gen = _enqueue(device, device_id, model, user_message)
+    gen = _enqueue(device, device_id, conversation_id, model, user_message)
 
     return SSEResponse(_tail_generation(gen))
 
-@llm_router.post("/:device_id/chat/interrupt", auth_required=True)
+@llm_router.post("/:device_id/conversations/:conversation_id/chat/interrupt", auth_required=True)
 async def interrupt(request: Request):
-    """Stops whatever generation is currently running for this device"""
+    """Stops whatever generation is currently running in this chat"""
     device_id = request.path_params["device_id"]
+    conversation_id = request.path_params["conversation_id"]
     if _llm_device_or_none(device_id) is None:
         return Response(status_code=404, description="llm device not found", headers={})
 
-    gen = _generations.get(device_id)
+    gen = _generations.get(_key(device_id, conversation_id))
     if gen is None or gen.done:
         return jsonify({"interrupted": False})
 
     gen.cancelled = True
     return jsonify({"interrupted": True})
 
-@llm_router.post("/:device_id/compact", auth_required=True)
+@llm_router.post("/:device_id/conversations/:conversation_id/compact", auth_required=True)
 async def compact(request: Request):
-    """Asks the model to summarize the conversation so far, then replaces
-    the stored history with just that summary, shrinking how much context
-    gets sent on every future turn"""
+    """Asks the model to summarize this chat so far, then replaces the
+    stored history with just that summary, shrinking how much context gets
+    sent (and re-processed) on every future turn"""
     device_id = request.path_params["device_id"]
+    conversation_id = request.path_params["conversation_id"]
     device = _llm_device_or_none(device_id)
     if device is None:
         return Response(status_code=404, description="llm device not found", headers={})
+    if not conversations.conversation_exists(device_id, conversation_id):
+        return Response(status_code=404, description="conversation not found", headers={})
 
-    gen = _generations.get(device_id)
+    gen = _generations.get(_key(device_id, conversation_id))
     if gen is not None and not gen.done:
         return Response(status_code=409, description="a generation is currently in progress", headers={})
 
@@ -249,7 +308,7 @@ async def compact(request: Request):
     if not model:
         return Response(status_code=400, description="missing 'model'", headers={})
 
-    messages = conversations.load_messages(device_id)
+    messages = conversations.load_messages(device_id, conversation_id)
     if len(messages) < 2:
         return jsonify({"compacted": False, "reason": "not enough history to compact"})
 
@@ -278,22 +337,23 @@ async def compact(request: Request):
 
     conversations.replace_messages(
         device_id,
+        conversation_id,
         [{"role": "system", "content": summary_text, "compacted": True}],
     )
 
     return jsonify({"compacted": True, "summary": summary_text})
 
-@llm_router.get("/:device_id/chat/tail", auth_required=True)
+@llm_router.get("/:device_id/conversations/:conversation_id/chat/tail", auth_required=True)
 async def tail(request: Request):
     """Reconnects to whatever generation is currently in flight (running or
-    still queued) for this device, used when a page loads and finds
-    `generating: true` in /history"""
+    still queued) for this chat"""
     device_id = request.path_params["device_id"]
+    conversation_id = request.path_params["conversation_id"]
     if _llm_device_or_none(device_id) is None:
         return Response(status_code=404, description="llm device not found", headers={})
 
-    gen = _generations.get(device_id)
+    gen = _generations.get(_key(device_id, conversation_id))
     if gen is None or gen.done:
         return SSEResponse(_empty_stream())
-    
+
     return SSEResponse(_tail_generation(gen))

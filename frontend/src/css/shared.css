@@ -180,10 +180,110 @@ body {
   max-height: 100%;
 }
 
-.chat-page {
+.chat-layout {
+  display: flex;
+  height: calc(100vh - 60px);
+}
+
+.chat-sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  padding: 16px;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 60px);
+  gap: 20px;
+}
+.sidebar-section select {
+  width: 100%;
+  margin-bottom: 8px;
+}
+.sidebar-section h4 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+.device-stats-card {
+  padding: 12px;
+}
+.conversations-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.conversations-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.conversations-header h4 {
+  margin: 0;
+}
+.conversations-header .icon-btn {
+  width: 26px;
+  height: 26px;
+  font-size: 14px;
+  padding: 0;
+}
+.conversation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  overflow-y: auto;
+}
+.conversation-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.conversation-item:hover {
+  background: var(--bg-elevated);
+}
+.conversation-item.active {
+  background: var(--accent-dim);
+  color: var(--text);
+}
+.conversation-item .conv-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conversation-item .conv-delete {
+  opacity: 0;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+}
+.conversation-item:hover .conv-delete {
+  opacity: 1;
+}
+.conversation-item .conv-delete:hover {
+  color: var(--bad);
+}
+
+.chat-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.conversation-title {
+  font-weight: 600;
+  margin-right: auto;
 }
 .chat-header {
   padding: 12px 24px;

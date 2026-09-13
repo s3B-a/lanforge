@@ -11,10 +11,13 @@ def _ssh_device_or_none(device_id: str):
     
     return device
 
+_JPEG_SOI = b"\xff\xd8"
+_JPEG_EOI = b"\xff\xd9"
+
 async def _read_frames(channel):
-    """Yields complete JPEG frames from a channel emitting
-    [4-byte big-endian length][JPEG bytes], as produced by
-    ssh_client.open_screen_stream."""
+    """Yields complete JPEG frames out of a raw MJPEG byte stream, as produced by ffmpeg via
+    ssh_client.open_screen_stream. Frame boundaries are found by scanning
+    for the standard JPEG start-of-image/end-of-image markers."""
     buffer = bytearray()
     while True:
         if channel.closed:
@@ -27,12 +30,24 @@ async def _read_frames(channel):
             await asyncio.sleep(0.01)
             continue
 
-        while len(buffer) >= 4:
-            frame_len = int.from_bytes(buffer[:4], "big")
-            if len(buffer) < 4 + frame_len:
+        while True:
+            start = buffer.find(_JPEG_SOI)
+            if start == -1:
+                if len(buffer) > 2:
+                    del buffer[:-1]
+                
                 break
-            yield bytes(buffer[4 : 4 + frame_len])
-            del buffer[: 4 + frame_len]
+            
+            end = buffer.find(_JPEG_EOI, start + 2)
+            if end == -1:
+                if start > 0:
+                    del buffer[:start]
+                
+                break
+
+            end += len(_JPEG_EOI)
+            yield bytes(buffer[start:end])
+            del buffer[:end]
 
 async def _safe_close(websocket):
     try:

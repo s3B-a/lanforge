@@ -299,14 +299,21 @@ caches it in that browser's `localStorage`.
 
 **How the screen view works**: there's no screen-sharing agent running on
 your devices, the hub drives it entirely over the same SSH connection
-everything else uses. `ssh_client.open_screen_stream()` starts a
-long-running PowerShell loop on the remote device that composites every monitor
-into one bitmap with `System.Drawing`, JPEG-encodes it, and writes
-`[4-byte length][JPEG bytes]` frames straight to its stdout roughly every
-200ms. The `/devices/:id/screen` websocket reads that stream and forwards
-each frame to the browser as a binary message. It's a rolling sequence of full
-JPEGs so expect a few frames a second and some lag
-rather than a 60fps feed.
+everything else uses. `ssh_client.open_screen_stream()` runs `ffmpeg`
+directly on the remote device (`gdigrab` capturing the desktop), piping a
+raw MJPEG stream back over that SSH channel. The `/devices/:id/screen`
+websocket scans that stream for JPEG start/end markers, forwarding each
+complete frame to the browser as a binary message; `screen.js` turns each
+one into a `Blob` URL and swaps the `<img>` src, no change needed there
+regardless of what produces the frames.
+
+This means **`ffmpeg` needs to be installed and on `PATH`** on any device
+you want the screen view for (not on the hub itself). Grab a Windows build
+from [ffmpeg.org](https://ffmpeg.org/download.html), unzip it, and add its
+`bin` folder to that account's `PATH`, then confirm from the hub:
+```
+hub> shell llm-rig ffmpeg -version
+```
 
 ## CLI (`cli/hub_cli.py`)
 
@@ -353,7 +360,10 @@ env vars, or `cfg\.env`
 | `GET /files/:id/download?path=` | Read a file (base64 in the JSON response) |
 | `POST /files/:id/upload` | Write a file (base64 in the JSON body) |
 | `GET /llm/:id/models` | List models available on that device's Ollama |
-| `POST /llm/:id/chat` | Chat with the model; streams via SSE unless `"stream": false` |
+| `GET /llm/:id/history` | Persisted conversation for that device, plus a `generating` flag |
+| `DELETE /llm/:id/history` | Clear that device's persisted conversation |
+| `POST /llm/:id/chat` | Send one message (`{"model", "message", "images"?}`); streams via SSE unless `"stream": false`. Runs as a detached background task, if you disconnect the model keeps generating, `/history` and `/chat/tail` pick it back up |
+| `GET /llm/:id/chat/tail?token=` | Reconnect to a still-in-progress generation for that device (used automatically by `chat.html` on load) |
 | `GET /system/stats` | CPU/memory/disk/network snapshot of the hub machine |
 | `WS /system/stats/stream?token=` | Same stats, pushed once a second |
 

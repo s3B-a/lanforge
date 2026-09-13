@@ -37,9 +37,9 @@ function deviceCardHtml(device, remoteStats) {
   `;
 
   if (remoteStats) {
-    const gpu = remoteStats.gpu ? `${remoteStats.gpu.percent.toFixed(0)}%` : "n/a";
     const memPct = remoteStats.memory_total ? (remoteStats.memory_used / remoteStats.memory_total) * 100 : 0;
     const diskPct = remoteStats.disk_total ? (remoteStats.disk_used / remoteStats.disk_total) * 100 : 0;
+    const gpuPct = remoteStats.gpu ? remoteStats.gpu.percent : null;
     body += `
       <div class="stat-row"><span>CPU</span><b>${(remoteStats.cpu_percent || 0).toFixed(1)}%</b></div>
       ${statPercentBar(remoteStats.cpu_percent || 0)}
@@ -47,7 +47,8 @@ function deviceCardHtml(device, remoteStats) {
       ${statPercentBar(memPct)}
       <div class="stat-row"><span>Disk</span><b>${diskPct.toFixed(1)}%</b></div>
       ${statPercentBar(diskPct)}
-      <div class="stat-row"><span>GPU</span><b>${gpu}</b></div>
+      <div class="stat-row"><span>GPU</span><b>${gpuPct === null ? "n/a" : gpuPct.toFixed(0) + "%"}</b></div>
+      ${gpuPct === null ? "" : statPercentBar(gpuPct)}
     `;
   }
 
@@ -71,7 +72,14 @@ function getOrCreateCard(container, device) {
   return el;
 }
 
+let loadInFlight = false;
+const missingCounts = new Map();
+const MISS_THRESHOLD = 3;
+
 async function load() {
+  if (loadInFlight) return;
+  loadInFlight = true;
+
   try {
     const stats = await apiGet("/system/stats");
     renderHub(stats);
@@ -79,51 +87,49 @@ async function load() {
     const { devices } = await apiGet("/devices");
     const container = document.getElementById("devices");
 
-    if (devices.length === 0) {
-      if (cardElements.size > 0) {
-        container.innerHTML = "";
-        cardElements.clear();
-      }
-
-      if (!container.querySelector(".empty-state")) {
-        container.innerHTML = '<div class="empty-state">No devices registered yet.</div>';
-      }
-
-      return;
+    if (devices.length > 0) {
+      const emptyState = container.querySelector(".empty-state");
+      if (emptyState) emptyState.remove();
     }
 
-    const emptyState = container.querySelector(".empty-state");
-    if (emptyState) emptyState.remove();
+    const statsResults = await Promise.all(
+      devices.map((device) =>
+        device.kind === "ssh" && device.online
+          ? apiGet(`/devices/${encodeURIComponent(device.id)}/stats`).catch(() => null)
+          : Promise.resolve(null)
+      )
+    );
 
     const seenIds = new Set();
-    for (const device of devices) {
+    devices.forEach((device, i) => {
       seenIds.add(device.id);
-
-      let remoteStats = null;
-      if (device.kind === "ssh" && device.online) {
-        try {
-          remoteStats = await apiGet(`/devices/${encodeURIComponent(device.id)}/stats`);
-        } catch (e) {
-          remoteStats = null;
-        }
-      }
-
+      missingCounts.delete(device.id);
       const el = getOrCreateCard(container, device);
-      el.innerHTML = deviceCardHtml(device, remoteStats);
-    }
+      el.innerHTML = deviceCardHtml(device, statsResults[i]);
+    });
 
     for (const [id, el] of cardElements) {
-      if (!seenIds.has(id)) {
+      if (seenIds.has(id)) continue;
+      const misses = (missingCounts.get(id) || 0) + 1;
+      missingCounts.set(id, misses);
+      if (misses >= MISS_THRESHOLD) {
         el.remove();
         cardElements.delete(id);
+        missingCounts.delete(id);
       }
+    }
+
+    if (cardElements.size === 0 && !container.querySelector(".empty-state")) {
+      container.innerHTML = '<div class="empty-state">No devices registered yet.</div>';
     }
   } catch (e) {
     const err = document.getElementById("error");
     err.textContent = e.message;
     err.hidden = false;
+  } finally {
+    loadInFlight = false;
   }
 }
 
 load();
-setInterval(load, 15000);
+setInterval(load, 3000);

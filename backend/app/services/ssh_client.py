@@ -184,58 +184,19 @@ def get_remote_stats(device: dict) -> dict:
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"non-JSON output from stats script: {output!r}") from exc
 
-_SCREEN_STREAM_SCRIPT = r"""
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
+def open_screen_stream(device: dict, framerate: int = 15, quality: int = 5):
+    """Opens a long-running ffmpeg screen-capture process (gdigrab) over a
+    raw SSH channel. Returns (client, channel); the channel emits a
+    continuous MJPEG stream until the caller closes it. Requires ffmpeg installed and on
+    PATH on the remote device. Caller is responsible for closing `client`
+    when done.
 
-$screens = [System.Windows.Forms.Screen]::AllScreens
-$minX = ($screens | ForEach-Object { $_.Bounds.X } | Measure-Object -Minimum).Minimum
-$minY = ($screens | ForEach-Object { $_.Bounds.Y } | Measure-Object -Minimum).Minimum
-$maxX = ($screens | ForEach-Object { $_.Bounds.X + $_.Bounds.Width } | Measure-Object -Maximum).Maximum
-$maxY = ($screens | ForEach-Object { $_.Bounds.Y + $_.Bounds.Height } | Measure-Object -Maximum).Maximum
-$totalWidth = $maxX - $minX
-$totalHeight = $maxY - $minY
-
-$stdout = [Console]::OpenStandardOutput()
-
-while ($true) {
-    try {
-        $bitmap = New-Object System.Drawing.Bitmap $totalWidth, $totalHeight
-        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-        foreach ($screen in $screens) {
-            $b = $screen.Bounds
-            $dest = New-Object System.Drawing.Point ($b.X - $minX), ($b.Y - $minY)
-            $graphics.CopyFromScreen($b.Location, $dest, $b.Size)
-        }
-
-        $ms = New-Object System.IO.MemoryStream
-        $bitmap.Save($ms, [System.Drawing.Imaging.ImageFormat]::Jpeg)
-        $bytes = $ms.ToArray()
-
-        $lenBytes = [BitConverter]::GetBytes([int32]$bytes.Length)
-        if ([BitConverter]::IsLittleEndian) { [Array]::Reverse($lenBytes) }
-        $stdout.Write($lenBytes, 0, 4)
-        $stdout.Write($bytes, 0, $bytes.Length)
-        $stdout.Flush()
-
-        $graphics.Dispose()
-        $bitmap.Dispose()
-        $ms.Dispose()
-    } catch {}
-
-    Start-Sleep -Milliseconds 200
-}
-"""
-
-def open_screen_stream(device: dict):
-    """Opens a long-running remote screen-capture process over a raw SSH
-    channel (all monitors composited into one image). Returns (client,
-    channel); the channel emits a continuous stream of
-    [4-byte big-endian length][JPEG bytes] frames until the caller closes
-    it. Caller is responsible for closing `client` when done."""
+    `quality` is ffmpeg's mjpeg -q:v scale: 2 (best) - 31 (worst)."""
     client = _connect(device)
-    encoded = base64.b64encode(_SCREEN_STREAM_SCRIPT.encode("utf-16-le")).decode("ascii")
-    command = f"powershell -NoProfile -NonInteractive -EncodedCommand {encoded}"
+    command = (
+        f"ffmpeg -f gdigrab -framerate {framerate} -i desktop "
+        f"-f image2pipe -vcodec mjpeg -q:v {quality} -"
+    )
     transport = client.get_transport()
     assert transport is not None, "transport is always set after a successful connect()"
     channel = transport.open_session()

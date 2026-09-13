@@ -1,14 +1,17 @@
 import json
 
 def run(args, client):
-    messages = []
+    if args.clear:
+        client.delete(f"/llm/{args.device}/history")
+        print(f"cleared chat history for '{args.device}'")
+        return
 
     if args.message:
-        messages.append({"role": "user", "content": args.message})
-        _send(client, args.device, args.model, messages)
+        _send(client, args.device, args.model, args.message)
         return
 
     print(f"Chatting with '{args.model}' on '{args.device}'. Type 'exit' to quit.")
+    print("(history is remembered by the hub across runs; use --clear to reset it)")
     while True:
         try:
             user_input = input("you> ").strip()
@@ -21,27 +24,23 @@ def run(args, client):
         if not user_input:
             continue
 
-        messages.append({"role": "user", "content": user_input})
-        reply = _send(client, args.device, args.model, messages)
-        messages.append({"role": "assistant", "content": reply})
+        _send(client, args.device, args.model, user_input)
 
-def _send(client, device_id: str, model: str, messages: list[dict]) -> str:
+def _send(client, device_id: str, model: str, message: str) -> None:
     print("assistant> ", end="", flush=True)
-    chunks = []
     for line in client.stream_post(
-        f"/llm/{device_id}/chat", {"model": model, "messages": messages, "stream": True}
+        f"/llm/{device_id}/chat", {"model": model, "message": message, "stream": True}
     ):
         if not line.startswith("data: "):
             continue
         payload = json.loads(line[len("data: ") :])
         if "error" in payload:
             print(f"[error: {payload['error']}]")
-            return ""
+            return
         content = payload.get("message", {}).get("content", "")
         if content:
             print(content, end="", flush=True)
-            chunks.append(content)
+
         if payload.get("done"):
             break
     print()
-    return "".join(chunks)

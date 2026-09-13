@@ -18,6 +18,11 @@ class HubClient:
         resp.raise_for_status()
         return resp.json()
 
+    def delete(self, path: str) -> dict:
+        resp = httpx.delete(f"{self.hub_url}{path}", headers=self.headers, timeout=15)
+        resp.raise_for_status()
+        return resp.json()
+
     def stream_post(self, path: str, json: dict) -> Iterator[str]:
         """Yields raw SSE lines (still prefixed with 'data: ')"""
         with httpx.stream(

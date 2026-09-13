@@ -24,6 +24,7 @@ def main() -> None:
     p_chat.add_argument("device", help="device id, e.g. llm-rig")
     p_chat.add_argument("--model", required=True, help="model tag, e.g. qwen3.8:27b-uncensored")
     p_chat.add_argument("-m", "--message", help="one-shot message; omit for an interactive session")
+    p_chat.add_argument("--clear", action="store_true", help="clear this device's remembered chat history and exit")
     p_chat.set_defaults(func=chat.run)
 
     p_shell = sub.add_parser("shell", help="run a command on, or open a session to, an SSH device")

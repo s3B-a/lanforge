@@ -1,5 +1,7 @@
 injectNav("dashboard");
 
+const cardElements = new Map();
+
 function statPercentBar(percent) {
   const cls = percent > 85 ? "bad" : percent > 60 ? "warn" : "";
   const clamped = Math.max(0, Math.min(100, percent));
@@ -24,7 +26,7 @@ function renderHub(stats) {
   `;
 }
 
-function deviceCard(device, remoteStats) {
+function deviceCardHtml(device, remoteStats) {
   const badge = device.online
     ? '<span class="badge online">online</span>'
     : '<span class="badge offline">offline</span>';
@@ -49,15 +51,23 @@ function deviceCard(device, remoteStats) {
     `;
   }
 
-  const el = document.createElement("div");
+  return `<h3>${device.name || device.id} ${badge}</h3>${body}`;
+}
+
+function getOrCreateCard(container, device) {
+  let el = cardElements.get(device.id);
+  if (el) return el;
+
+  el = document.createElement("div");
   el.className = "card device-card";
-  el.innerHTML = `<h3>${device.name || device.id} ${badge}</h3>${body}`;
   if (device.kind === "ssh") {
     el.addEventListener("click", () => {
       location.href = `/app/device.html?id=${encodeURIComponent(device.id)}`;
     });
   }
-  
+
+  container.appendChild(el);
+  cardElements.set(device.id, el);
   return el;
 }
 
@@ -68,14 +78,27 @@ async function load() {
 
     const { devices } = await apiGet("/devices");
     const container = document.getElementById("devices");
-    container.innerHTML = "";
 
     if (devices.length === 0) {
-      container.innerHTML = '<div class="empty-state">No devices registered yet.</div>';
+      if (cardElements.size > 0) {
+        container.innerHTML = "";
+        cardElements.clear();
+      }
+
+      if (!container.querySelector(".empty-state")) {
+        container.innerHTML = '<div class="empty-state">No devices registered yet.</div>';
+      }
+
       return;
     }
 
+    const emptyState = container.querySelector(".empty-state");
+    if (emptyState) emptyState.remove();
+
+    const seenIds = new Set();
     for (const device of devices) {
+      seenIds.add(device.id);
+
       let remoteStats = null;
       if (device.kind === "ssh" && device.online) {
         try {
@@ -84,7 +107,16 @@ async function load() {
           remoteStats = null;
         }
       }
-      container.appendChild(deviceCard(device, remoteStats));
+
+      const el = getOrCreateCard(container, device);
+      el.innerHTML = deviceCardHtml(device, remoteStats);
+    }
+
+    for (const [id, el] of cardElements) {
+      if (!seenIds.has(id)) {
+        el.remove();
+        cardElements.delete(id);
+      }
     }
   } catch (e) {
     const err = document.getElementById("error");
@@ -94,4 +126,4 @@ async function load() {
 }
 
 load();
-setInterval(load, 5000);
+setInterval(load, 15000);

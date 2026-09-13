@@ -1,3 +1,4 @@
+import json
 from contextlib import contextmanager
 
 import paramiko
@@ -79,3 +80,60 @@ def sftp_write(device: dict, path: str, data: bytes) -> None:
                 f.write(data)
         finally:
             sftp.close()
+
+def run_powershell(device: dict, script: str, timeout: int = 30) -> str:
+    """Runs a (possibly multi-line) PowerShell script by piping it over
+    stdin to `powershell -Command -`, same technique ssh_manager.py's deploy
+    uses"""
+    with ssh_client(device) as client:
+        stdin, stdout, stderr = client.exec_command(
+            "powershell -NoProfile -NonInteractive -Command -", timeout=timeout
+        )
+        stdin.write(script)
+        stdin.close()
+        exit_code = stdout.channel.recv_exit_status()
+        output = stdout.read().decode(errors="replace")
+        if exit_code != 0:
+            raise RuntimeError(stderr.read().decode(errors="replace") or f"exit code {exit_code}")
+        
+        return output
+
+_REMOTE_STATS_SCRIPT = r"""
+$cpu = (Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average
+$os = Get-CimInstance Win32_OperatingSystem
+$memTotal = [int64]$os.TotalVisibleMemorySize * 1024
+$memFree = [int64]$os.FreePhysicalMemory * 1024
+$disk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'"
+$net = Get-NetAdapterStatistics
+$recv = ($net | Measure-Object -Property ReceivedBytes -Sum).Sum
+$sent = ($net | Measure-Object -Property SentBytes -Sum).Sum
+
+$gpu = $null
+try {
+    $raw = & nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>$null
+    if ($raw) {
+        $parts = ($raw | Select-Object -First 1) -split ',\s*'
+        $gpu = @{ percent = [double]$parts[0]; memory_used_mb = [double]$parts[1]; memory_total_mb = [double]$parts[2] }
+    }
+} catch {}
+
+$result = @{
+    hostname = $env:COMPUTERNAME
+    cpu_percent = $cpu
+    memory_total = $memTotal
+    memory_used = ($memTotal - $memFree)
+    disk_total = $disk.Size
+    disk_used = ($disk.Size - $disk.FreeSpace)
+    network_recv = $recv
+    network_sent = $sent
+    gpu = $gpu
+}
+$result | ConvertTo-Json -Compress
+"""
+
+def get_remote_stats(device: dict) -> dict:
+    """Live CPU/RAM/disk/network/GPU snapshot of a remote SSH device,
+    gathered over the existing SSH connection"""
+    output = run_powershell(device, _REMOTE_STATS_SCRIPT)
+
+    return json.loads(output.strip())

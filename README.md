@@ -114,6 +114,16 @@ hub> chat llm-rig qwen3.8:27b-uncensored hello
 hub> help
 hub> exit
 ```
+`status` shows the hub's own stats plus a live CPU/RAM/disk/network/GPU
+snapshot for every online SSH device (gathered on the spot over the
+existing SSH connection, no agent needed on that end; GPU is best-effort,
+NVIDIA via `nvidia-smi`, shown as `n/a` otherwise).
+
+Tab-completes device ids (`shell`, `chat`) and, once a device is typed,
+model names for `chat`. This needs `pyreadline3` (Windows has no built-in
+`readline`), already in `backend/requirements.txt`; without it the console
+still works, just without completion.
+
 `exit` only stops the console loop, the server keeps running. This only
 works when the process has an actual attached terminal, it does nothing
 useful when run as a Windows service (no stdin to read), that's what
@@ -308,6 +318,7 @@ env vars, or `cfg\.env`
 | `GET /devices/:id`, `DELETE /devices/:id` | Inspect / remove a device |
 | `PATCH /devices/:id` | Merge fields into an existing device (used by `ssh_manager.py update`) |
 | `POST /devices/:id/heartbeat` | Used by `heartbeat_agent.py` to report current IP |
+| `GET /devices/:id/stats` | Live CPU/RAM/disk/network/GPU snapshot of an SSH device |
 | `POST /shell/:id/exec` | Run a one-shot command over SSH |
 | `WS /shell/:id/session?token=` | Interactive terminal session |
 | `GET /files/:id/list?path=` | List a directory over SFTP |

@@ -185,7 +185,7 @@ async def _maybe_autotitle(device: dict, device_id: str, conversation_id: str, m
             return
 
         messages = conversations.load_messages(device_id, conversation_id)
-        if len(messages) != 2:
+        if len(messages) < 2:
             return
 
         title_request = [

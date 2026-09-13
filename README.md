@@ -15,7 +15,7 @@ tool.
 | Piece | Status |
 |---|---|
 | `backend/` - hub API (devices, shell, files, llm, monitor) | Built |
-| `scripts/` - firewall rule + Windows service install + device heartbeat agent | Built |
+| `scripts/` - firewall rule + Windows service install + device heartbeat agent + screen capture agent | Built |
 | `frontend/` - browser dashboard (chat / devices / terminal + screen) | Built |
 | `cli/` - terminal client (`hub_cli.py`) | Built |
 | `ssh/ssh_manager.py` - key generation/provisioning helper | Built |
@@ -298,23 +298,48 @@ caches it in that browser's `localStorage`.
 - **`chat.html`**: pick a registered LLM device and one of its installed
   models, then chat, responses stream in token-by-token.
 
-**How the screen view works**: there's no screen-sharing agent running on
-your devices, the hub drives it entirely over the same SSH connection
-everything else uses. `ssh_client.open_screen_stream()` runs `ffmpeg`
-directly on the remote device (`gdigrab` capturing the desktop), piping a
-raw MJPEG stream back over that SSH channel. The `/ws/screen` websocket
-scans that stream for JPEG start/end markers, forwarding each
-complete frame to the browser as a binary message; `screen.js` turns each
-one into a `Blob` URL and swaps the `<img>` src, no change needed there
-regardless of what produces the frames.
+**How the screen view works, and why it needs its own agent**: running `ffmpeg` directly over the SSH connection like everything else, does not work on Windows. Screen capture (`gdigrab`, and
+every other Windows capture API) requires access to the interactive
+window station, and a process spawned by `sshd` always lands in a
+different, non-interactive window station with no desktop access, even
+while you're actively logged in over RDP or at the console. It fails
+immediately with `Failed to capture image (error 5)`
+(`ERROR_ACCESS_DENIED`), and no ffmpeg flag or hub-side code change routes
+around that, it's a Windows session-isolation restriction on the process
+itself.
 
-This means **`ffmpeg` needs to be installed and on `PATH`** on any device
-you want the screen view for (not on the hub itself). Grab a Windows build
-from [ffmpeg.org](https://ffmpeg.org/download.html), unzip it, and add its
-`bin` folder to that account's `PATH`, then confirm from the hub:
-```
-hub> shell llm-rig ffmpeg -version
-```
+**Setting it up on a device** (e.g. `llm-rig`):
+
+1. Install `ffmpeg` and put it on that account's `PATH` (grab a Windows
+   build from [ffmpeg.org](https://ffmpeg.org/download.html)):
+   ```
+   hub> shell llm-rig ffmpeg -version
+   ```
+2. Open the agent's port to your LAN on that device, as Administrator
+   (reusing the same script the hub itself uses):
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts\firewall_setup.ps1 -Port 5910
+   ```
+3. Register a Scheduled Task on that device, **as the user who's actually
+   logged in**, set to run only while logged on:
+   ```powershell
+   $action = New-ScheduledTaskAction -Execute "python.exe" `
+       -Argument "C:\path\to\localserver\scripts\screen_agent.py --token <HUB_TOKEN> --port 5910"
+   $trigger = New-ScheduledTaskTrigger -AtLogOn
+   Register-ScheduledTask -TaskName "LocalHubScreenAgent" -Action $action -Trigger $trigger -RunLevel Limited
+   Start-ScheduledTask -TaskName "LocalHubScreenAgent"
+   ```
+   `-RunLevel Limited` (not `Highest`) together with the `-AtLogOn`
+   trigger and no explicit `-User`/`-Password` is what makes Task
+   Scheduler run it in your interactive session rather than detached.
+4. Tell the hub about the port:
+   ```powershell
+   .venv\Scripts\python.exe ssh\ssh_manager.py update llm-rig `
+       --hub-url http://<hub-host>:8080 --token <HUB_TOKEN> --screen-port 5910
+   ```
+
+From then on the screen view on `device.html` works as long as that
+Scheduled Task is running (it restarts automatically at every logon).
 
 ## CLI (`cli/hub_cli.py`)
 

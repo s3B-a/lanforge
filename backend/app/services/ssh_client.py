@@ -183,23 +183,3 @@ def get_remote_stats(device: dict) -> dict:
         return json.loads(output.strip())
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"non-JSON output from stats script: {output!r}") from exc
-
-def open_screen_stream(device: dict, framerate: int = 15, quality: int = 5):
-    """Opens a long-running ffmpeg screen-capture process (gdigrab) over a
-    raw SSH channel. Returns (client, channel); the channel emits a
-    continuous MJPEG stream until the caller closes it. Requires ffmpeg installed and on
-    PATH on the remote device. Caller is responsible for closing `client`
-    when done.
-
-    `quality` is ffmpeg's mjpeg -q:v scale: 2 (best) - 31 (worst)."""
-    client = _connect(device)
-    command = (
-        f"ffmpeg -hide_banner -loglevel error -f gdigrab -framerate {framerate} -i desktop "
-        f"-f image2pipe -vcodec mjpeg -q:v {quality} -"
-    )
-    transport = client.get_transport()
-    assert transport is not None, "transport is always set after a successful connect()"
-    channel = transport.open_session()
-    channel.exec_command(command)
-
-    return client, channel

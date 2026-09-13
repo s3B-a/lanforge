@@ -43,7 +43,7 @@
       return;
     }
 
-    ws.send(cmdInput.value + "\n");
+    ws.send(cmdInput.value + "\r\n");
     cmdInput.value = "";
   });
 })();

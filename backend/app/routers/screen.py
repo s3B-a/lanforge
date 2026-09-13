@@ -1,53 +1,30 @@
-import asyncio
 import json
 
 from app.core import devices_store
 from app.core.config import HUB_TOKEN
-from app.services import ssh_client
+from app.services import screen_client
 
-def _ssh_device_or_none(device_id: str):
+def _screen_device_or_none(device_id: str):
     device = devices_store.get_device(device_id)
-    if device is None or device["kind"] != "ssh":
+    if device is None or device["kind"] != "ssh" or not device.get("screen_port"):
         return None
 
     return device
 
 _JPEG_SOI = b"\xff\xd8"
 _JPEG_EOI = b"\xff\xd9"
-_STDERR_TAIL_LIMIT = 4096
 
-class _StreamEnded(Exception):
-    """Raised when the remote ffmpeg process exits before ever producing a single frame"""
-    def __init__(self, stderr_tail: str):
-        self.stderr_tail = stderr_tail
-        super().__init__(stderr_tail)
-
-async def _read_frames(channel):
-    """Yields complete JPEG frames out of a raw MJPEG byte stream, as produced by ffmpeg via
-    ssh_client.open_screen_stream. Frame boundaries are found by scanning
-    for the standard JPEG start-of-image/end-of-image markers."""
+async def _read_frames(reader):
+    """Yields complete JPEG frames out of the raw MJPEG byte stream sent by
+    scripts/screen_agent.py. Frame boundaries are found by scanning for the
+    standard JPEG start-of-image/end-of-image markers."""
     buffer = bytearray()
-    stderr_tail = bytearray()
-    frames_sent = 0
-
     while True:
-        drained = False
-        if channel.recv_ready():
-            buffer += channel.recv(65536)
-            drained = True
-        if channel.recv_stderr_ready():
-            stderr_tail += channel.recv_stderr(65536)
-            if len(stderr_tail) > _STDERR_TAIL_LIMIT:
-                del stderr_tail[: len(stderr_tail) - _STDERR_TAIL_LIMIT]
-            drained = True
+        chunk = await reader.read(65536)
+        if not chunk:
+            return
         
-        if not drained:
-            if channel.closed or channel.exit_status_ready():
-                if frames_sent == 0:
-                    raise _StreamEnded(stderr_tail.decode(errors="replace").strip())
-                return
-            await asyncio.sleep(0.01)
-            continue
+        buffer += chunk
 
         while True:
             start = buffer.find(_JPEG_SOI)
@@ -61,17 +38,22 @@ async def _read_frames(channel):
             if end == -1:
                 if start > 0:
                     del buffer[:start]
-                
+
                 break
 
             end += len(_JPEG_EOI)
-            frames_sent += 1
             yield bytes(buffer[start:end])
             del buffer[:end]
 
 async def _safe_close(websocket):
     try:
         await websocket.close()
+    except Exception:
+        pass
+
+async def _send_error(websocket, message: str):
+    try:
+        await websocket.send_text(json.dumps({"error": message}))
     except Exception:
         pass
 
@@ -85,26 +67,26 @@ def register_websockets(app):
             await _safe_close(websocket)
             return ""
 
-        device = _ssh_device_or_none(device_id)
+        device = _screen_device_or_none(device_id)
         if device is None:
+            await _send_error(websocket, "this device has no screen_port configured, see README's screen agent setup")
             await _safe_close(websocket)
             return ""
 
-        client, channel = ssh_client.open_screen_stream(device)
         try:
-            async for frame in _read_frames(channel):
+            reader, writer = await screen_client.open_screen_stream(device, HUB_TOKEN)
+        except (OSError, RuntimeError) as exc:
+            await _send_error(websocket, str(exc))
+            await _safe_close(websocket)
+            return ""
+
+        try:
+            async for frame in _read_frames(reader):
                 await websocket.send_bytes(frame)
-        except _StreamEnded as exc:
-            message = exc.stderr_tail or "ffmpeg exited without producing any frames (is it installed and on PATH on that device?)"
-            try:
-                await websocket.send_text(json.dumps({"error": message}))
-            except Exception:
-                pass
         except Exception:
             pass
         finally:
-            channel.close()
-            client.close()
+            writer.close()
             await _safe_close(websocket)
 
         return ""

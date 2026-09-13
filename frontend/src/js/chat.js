@@ -215,11 +215,18 @@ function startStatsPolling(deviceId, epoch) {
   statsIntervalId = setInterval(() => loadDeviceStats(deviceId, epoch), 3000);
 }
 
+let openConvMenu = null;
+
 function closeAllConvMenus() {
-  conversationListEl.querySelectorAll(".conv-menu").forEach((m) => m.remove());
+  if (openConvMenu) {
+    openConvMenu.remove();
+    openConvMenu = null;
+  }
 }
 
 document.addEventListener("click", closeAllConvMenus);
+window.addEventListener("resize", closeAllConvMenus);
+conversationListEl.addEventListener("scroll", closeAllConvMenus);
 
 function renderConversationList() {
   conversationListEl.innerHTML = "";
@@ -234,20 +241,21 @@ function renderConversationList() {
     el.querySelector(".conv-title").addEventListener("click", () => selectConversation(conv.id));
     el.querySelector(".conv-menu-btn").addEventListener("click", (e) => {
       e.stopPropagation();
-      toggleConvMenu(el, conv);
+      toggleConvMenu(e.currentTarget, el, conv);
     });
 
     conversationListEl.appendChild(el);
   }
 }
 
-function toggleConvMenu(itemEl, conv) {
-  const existing = itemEl.querySelector(".conv-menu");
+function toggleConvMenu(btnEl, itemEl, conv) {
+  const wasOpenForThis = openConvMenu && openConvMenu.dataset.forId === conv.id;
   closeAllConvMenus();
-  if (existing) return;
+  if (wasOpenForThis) return;
 
   const menu = document.createElement("div");
   menu.className = "conv-menu";
+  menu.dataset.forId = conv.id;
   menu.innerHTML =
     '<button type="button" data-action="rename">Rename</button>' +
     '<button type="button" data-action="files">Files</button>' +
@@ -267,7 +275,20 @@ function toggleConvMenu(itemEl, conv) {
     deleteConversation(conv.id);
   });
 
-  itemEl.appendChild(menu);
+  document.body.appendChild(menu);
+  openConvMenu = menu;
+
+  const rect = btnEl.getBoundingClientRect();
+  const menuRect = menu.getBoundingClientRect();
+  let left = rect.right - menuRect.width;
+  left = Math.max(4, Math.min(left, window.innerWidth - menuRect.width - 4));
+  let top = rect.bottom + 4;
+  if (top + menuRect.height > window.innerHeight - 4) {
+    top = rect.top - menuRect.height - 4;
+  }
+  
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
 }
 
 function startRename(itemEl, conv) {

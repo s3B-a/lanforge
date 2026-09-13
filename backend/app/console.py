@@ -12,7 +12,6 @@ opening a plain shell on it.
 """
 
 import asyncio
-import cmd
 import shlex
 import subprocess
 import threading
@@ -20,13 +19,14 @@ import threading
 from app.core import devices_store
 from app.services import llm_client, monitor, ssh_client
 
+
 def _fmt_bytes(n: float) -> str:
     for unit in ("B", "KB", "MB", "GB", "TB"):
         if n < 1024:
             return f"{n:.1f}{unit}"
         n /= 1024
-
     return f"{n:.1f}PB"
+
 
 def _cmd_status(args: list[str]) -> None:
     stats = monitor.get_local_stats()
@@ -54,6 +54,7 @@ def _cmd_status(args: list[str]) -> None:
             continue
         _print_remote_stats(remote)
 
+
 def _print_remote_stats(remote: dict) -> None:
     mem_total = remote.get("memory_total") or 0
     mem_used = remote.get("memory_used") or 0
@@ -74,6 +75,7 @@ def _print_remote_stats(remote: dict) -> None:
         print(f"    gpu    : {gpu['percent']:.0f}%  ({gpu['memory_used_mb']:.0f}MB / {gpu['memory_total_mb']:.0f}MB)")
     else:
         print("    gpu    : n/a")
+
 
 def _cmd_shell(args: list[str]) -> None:
     if len(args) < 2:
@@ -98,6 +100,7 @@ def _cmd_shell(args: list[str]) -> None:
     print(result["stdout"], end="")
     print(result["stderr"], end="")
 
+
 def _cmd_chat(args: list[str]) -> None:
     if len(args) < 3:
         print("usage: chat <device-id> <model> <message...>")
@@ -117,100 +120,60 @@ def _cmd_chat(args: list[str]) -> None:
     except Exception as exc:
         print(f"error: {exc}")
 
+
+_COMMANDS = {
+    "status": _cmd_status,
+    "shell": _cmd_shell,
+    "chat": _cmd_chat,
+}
+
 _HELP = (
     "commands:\n"
     "  status                                  hub + all ssh devices: cpu/ram/disk/net/gpu\n"
     "  shell <device-id|local> <command...>    run a command on a device, or 'local' for this machine\n"
     "  chat <device-id> <model> <message...>   one-shot chat with an llm device\n"
     "  help                                    show this again\n"
-    "  exit                                    stop the console (server keeps running)\n"
-    "\n"
-    "tab-completes device ids (shell, chat) and model names (chat, once a device is typed)."
+    "  exit                                    stop the console (server keeps running)"
 )
 
-class HubConsole(cmd.Cmd):
-    prompt = "hub> "
 
-    def preloop(self) -> None:
+def _loop() -> None:
+    print("Hub console ready, type 'help' for commands.")
+    while True:
         try:
-            import readline
-
-            readline.set_completer_delims(" \t\n")
-        except ImportError:
-            pass
-
-    def emptyline(self) -> None:
-        pass
-
-    def default(self, line: str) -> None:
-        cmd_word = line.split()[0] if line.split() else line
-        print(f"unknown command '{cmd_word}', type 'help' for the list")
-
-    def do_status(self, arg: str) -> None:
-        _cmd_status(shlex.split(arg))
-
-    def do_shell(self, arg: str) -> None:
-        _cmd_shell(shlex.split(arg))
-
-    def do_chat(self, arg: str) -> None:
-        _cmd_chat(shlex.split(arg))
-
-    def do_help(self, arg: str) -> None:
-        print(_HELP)
-
-    def do_exit(self, arg: str) -> bool:
-        print("(console stopped; server keeps running)")
-
-        return True
-
-    do_quit = do_exit
-
-    def do_EOF(self, arg: str) -> bool:
-        print()
-        print("(console stopped; server keeps running)")
-
-        return True
-
-    def _device_ids(self, kinds: set[str] | None = None) -> list[str]:
-        devices = devices_store.list_devices()
-        if kinds:
-            devices = [d for d in devices if d["kind"] in kinds]
-
-        return [d["id"] for d in devices]
-
-    def complete_shell(self, text: str, line: str, begidx: int, endidx: int) -> list[str]:
-        words = line[:begidx].split()
-        if len(words) <= 1:
-            candidates = ["local"] + self._device_ids(kinds={"ssh"})
-            return [c for c in candidates if c.startswith(text)]
-        
-        return []
-
-    def complete_chat(self, text: str, line: str, begidx: int, endidx: int) -> list[str]:
-        words = line[:begidx].split()
-        if len(words) <= 1:
-            return [c for c in self._device_ids(kinds={"ssh"}) if c.startswith(text)]
-        if len(words) == 2:
-            device = devices_store.get_device(words[1])
-            if device is None or "ollama_port" not in device:
-                return []
-            try:
-                data = asyncio.run(llm_client.list_models(device))
-            except Exception:
-                return []
-            names = [m.get("name") or m.get("model") for m in data.get("models", [])]
-            return [n for n in names if n and n.startswith(text)]
-        
-        return []
-
-    def cmdloop_forever(self) -> None:
-        try:
-            self.cmdloop(intro="Hub console ready, type 'help' for commands.")
-        except KeyboardInterrupt:
+            line = input("hub> ").strip()
+        except (EOFError, KeyboardInterrupt):
             print()
+            break
+
+        if not line:
+            continue
+
+        try:
+            cmd, *args = shlex.split(line)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            continue
+
+        if cmd in ("exit", "quit"):
             print("(console stopped; server keeps running)")
+            break
+        if cmd == "help":
+            print(_HELP)
+            continue
+
+        handler = _COMMANDS.get(cmd)
+        if handler is None:
+            print(f"unknown command '{cmd}', type 'help' for the list")
+            continue
+
+        try:
+            handler(args)
+        except Exception as exc:
+            print(f"error: {exc}")
+
 
 def start_console_thread() -> threading.Thread:
-    thread = threading.Thread(target=HubConsole().cmdloop_forever, name="hub-console", daemon=True)
+    thread = threading.Thread(target=_loop, name="hub-console", daemon=True)
     thread.start()
     return thread

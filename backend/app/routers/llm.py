@@ -28,8 +28,9 @@ class _Generation:
         self.cancelled = False
 
 class _Job:
-    def __init__(self, model: str, gen: _Generation):
+    def __init__(self, model: str, user_message: dict, gen: _Generation):
         self.model = model
+        self.user_message = user_message
         self.gen = gen
 
 _generations: dict[str, _Generation] = {}
@@ -71,9 +72,29 @@ async def clear_history(request: Request):
     conversations.clear(device_id)
     return jsonify({"cleared": True})
 
-async def _run_generation(device: dict, model: str, device_id: str, gen: "_Generation") -> None:
+_EMPTY_RESPONSE_TEXT = "(no response was generated for this turn)"
+_INTERRUPTED_EMPTY_TEXT = "(interrupted before any response was generated)"
+
+def _for_api(messages: list[dict]) -> list[dict]:
+    """Strips our own bookkeeping fields (thinking/stats/interrupted/...)
+    before handing history back to Ollama, only role/content/images are
+    part of its request schema."""
+    cleaned = []
+    for m in messages:
+        content = m.get("content") or ""
+        if m.get("role") == "assistant" and not content and not m.get("images"):
+            content = _INTERRUPTED_EMPTY_TEXT if m.get("interrupted") else _EMPTY_RESPONSE_TEXT
+        item = {"role": m["role"], "content": content}
+        if m.get("images"):
+            item["images"] = m["images"]
+        cleaned.append(item)
+
+    return cleaned
+
+async def _run_generation(device: dict, model: str, device_id: str, user_message: dict, gen: "_Generation") -> None:
+    conversations.append_message(device_id, user_message)
     try:
-        async for line in llm_client.stream_chat(device, model, conversations.load_messages(device_id)):
+        async for line in llm_client.stream_chat(device, model, _for_api(conversations.load_messages(device_id))):
             if gen.cancelled:
                 break
 
@@ -100,15 +121,16 @@ async def _run_generation(device: dict, model: str, device_id: str, gen: "_Gener
                     "eval_count": payload.get("eval_count"),
                     "eval_duration": payload.get("eval_duration"),
                 }
-    except httpx.HTTPError as exc:
-        gen.error = str(exc)
+    except Exception as exc:
+        gen.error = str(exc) or repr(exc)
     finally:
         if gen.cancelled:
             gen.chunks.append(json.dumps({"done": True, "interrupted": True}))
 
         gen.done = True
         if gen.full_text or gen.cancelled:
-            assistant_message = {"role": "assistant", "content": gen.full_text}
+            content = gen.full_text or _INTERRUPTED_EMPTY_TEXT
+            assistant_message = {"role": "assistant", "content": content}
             if gen.full_thinking:
                 assistant_message["thinking"] = gen.full_thinking
             if gen.stats:
@@ -123,14 +145,14 @@ async def _device_worker(device: dict, device_id: str) -> None:
         while queue:
             job = queue.popleft()
             _generations[device_id] = job.gen
-            await _run_generation(device, job.model, device_id, job.gen)
+            await _run_generation(device, job.model, device_id, job.user_message, job.gen)
     finally:
         _workers.pop(device_id, None)
 
-def _enqueue(device: dict, device_id: str, model: str) -> "_Generation":
+def _enqueue(device: dict, device_id: str, model: str, user_message: dict) -> "_Generation":
     gen = _Generation()
     queue = _queues.setdefault(device_id, deque())
-    queue.append(_Job(model, gen))
+    queue.append(_Job(model, user_message, gen))
 
     existing = _workers.get(device_id)
     if existing is None or existing.done():
@@ -176,22 +198,21 @@ async def chat(request: Request):
     user_message = {"role": "user", "content": text}
     if images:
         user_message["images"] = images
-    
-    conversations.append_message(device_id, user_message)
 
     if not body.get("stream", True):
+        conversations.append_message(device_id, user_message)
         try:
-            data = await llm_client.chat(device, model, conversations.load_messages(device_id))
+            data = await llm_client.chat(device, model, _for_api(conversations.load_messages(device_id)))
         except httpx.HTTPError as exc:
             return Response(status_code=502, description=f"llm unreachable: {exc}", headers={})
-        
+
         reply = data.get("message", {}).get("content", "")
         if reply:
             conversations.append_message(device_id, {"role": "assistant", "content": reply})
 
         return jsonify(data)
 
-    gen = _enqueue(device, device_id, model)
+    gen = _enqueue(device, device_id, model, user_message)
 
     return SSEResponse(_tail_generation(gen))
 
@@ -242,7 +263,7 @@ async def compact(request: Request):
                 "Reply with only the summary, no commentary."
             ),
         },
-        *messages,
+        *_for_api(messages),
         {"role": "user", "content": "Summarize our conversation above."},
     ]
 

@@ -1,6 +1,7 @@
 from robyn import Request, Response, SubRouter, jsonify
 
 from app.core import devices_store
+from app.services import ssh_client
 
 devices_router = SubRouter(__file__, prefix="/devices")
 
@@ -45,6 +46,20 @@ def delete_device(request: Request):
         return Response(status_code=404, description="device not found", headers={})
     
     return jsonify({"removed": device_id})
+
+@devices_router.get("/:device_id/stats", auth_required=True)
+def device_stats(request: Request):
+    device_id = request.path_params["device_id"]
+    device = devices_store.get_device(device_id)
+    if device is None or device["kind"] != "ssh":
+        return Response(status_code=404, description="ssh device not found", headers={})
+
+    try:
+        stats = ssh_client.get_remote_stats(device)
+    except Exception as exc:
+        return Response(status_code=502, description=f"could not get stats: {exc}", headers={})
+
+    return jsonify(stats)
 
 @devices_router.post("/:device_id/heartbeat", auth_required=True)
 def heartbeat(request: Request):

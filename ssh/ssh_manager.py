@@ -126,7 +126,7 @@ $key = @'
 {key}
 '@
 if (-not (Select-String -Path $authFile -SimpleMatch $key -Quiet)) {{
-    Add-Content -Path $authFile -Value $key
+    Add-Content -Path $authFile -Value $key -Encoding ascii
 }}
 """
 
@@ -138,7 +138,7 @@ $key = @'
 {key}
 '@
 if (-not (Select-String -Path $path -SimpleMatch $key -Quiet)) {{
-    Add-Content -Path $path -Value $key
+    Add-Content -Path $path -Value $key -Encoding ascii
 }}
 icacls $path /inheritance:r | Out-Null
 icacls $path /grant "SYSTEM:(F)" | Out-Null

@@ -1,3 +1,5 @@
+import json
+import httpx
 from robyn import Request, Response, SSEResponse, SubRouter, jsonify
 
 from app.core import devices_store
@@ -34,11 +36,17 @@ async def chat(request: Request):
         return Response(status_code=400, description="missing 'model' or 'messages'", headers={})
 
     if not body.get("stream", True):
-        data = await llm_client.chat(device, model, messages)
+        try:
+            data = await llm_client.chat(device, model, messages)
+        except httpx.HTTPError as exc:
+            return Response(status_code=502, description=f"llm unreachable: {exc}", headers={})
         return jsonify(data)
 
     async def event_generator():
-        async for line in llm_client.stream_chat(device, model, messages):
-            yield f"data: {line}\n\n"
+        try:
+            async for line in llm_client.stream_chat(device, model, messages):
+                yield f"data: {line}\n\n"
+        except httpx.HTTPError as exc:
+            yield f"data: {json.dumps({'error': str(exc), 'done': True})}\n\n"
 
     return SSEResponse(event_generator())

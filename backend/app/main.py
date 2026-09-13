@@ -1,5 +1,6 @@
 from robyn import Robyn, jsonify
 
+from app.console import start_console_thread
 from app.core.auth import TokenAuthHandler
 from app.core.config import HUB_HOST, HUB_PORT
 from app.routers import devices, files, llm, monitor, shell
@@ -21,4 +22,5 @@ def health(request):
     return jsonify({"status": "ok"})
 
 if __name__ == "__main__":
+    start_console_thread()
     app.start(host=HUB_HOST, port=HUB_PORT)

@@ -1,3 +1,5 @@
+import base64
+import json
 from contextlib import contextmanager
 
 import paramiko
@@ -79,3 +81,84 @@ def sftp_write(device: dict, path: str, data: bytes) -> None:
                 f.write(data)
         finally:
             sftp.close()
+
+def run_powershell(device: dict, script: str, timeout: int = 30) -> str:
+    """Runs a (possibly multi-line) PowerShell script via -EncodedCommand:
+    one exec_command call, no stdin writes. Piping a script over stdin to
+    `powershell -Command -` (the technique ssh_manager.py's deploy uses) can
+    silently produce no output at all while still reporting exit code 0,
+    -EncodedCommand sidesteps that failure mode entirely, plus all
+    escaping/quoting concerns, by passing the whole script as one base64
+    blob on the command line."""
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    command = f"powershell -NoProfile -NonInteractive -EncodedCommand {encoded}"
+    with ssh_client(device) as client:
+        _, stdout, stderr = client.exec_command(command, timeout=timeout)
+        exit_code = stdout.channel.recv_exit_status()
+        output = stdout.read().decode(errors="replace")
+        if exit_code != 0:
+            raise RuntimeError(stderr.read().decode(errors="replace") or f"exit code {exit_code}")
+
+        return output
+
+_REMOTE_STATS_SCRIPT = r"""
+$cpu = $null
+try {
+    $cpu = (Get-CimInstance Win32_Processor -ErrorAction Stop | Measure-Object -Property LoadPercentage -Average).Average
+} catch {}
+
+$memTotal = $null
+$memUsed = $null
+try {
+    $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+    $memTotal = [int64]$os.TotalVisibleMemorySize * 1024
+    $memUsed = $memTotal - ([int64]$os.FreePhysicalMemory * 1024)
+} catch {}
+
+$diskTotal = $null
+$diskUsed = $null
+try {
+    $disk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'" -ErrorAction Stop
+    $diskTotal = $disk.Size
+    $diskUsed = $disk.Size - $disk.FreeSpace
+} catch {}
+
+$netRecv = $null
+$netSent = $null
+try {
+    $net = Get-NetAdapterStatistics -ErrorAction Stop
+    $netRecv = ($net | Measure-Object -Property ReceivedBytes -Sum).Sum
+    $netSent = ($net | Measure-Object -Property SentBytes -Sum).Sum
+} catch {}
+
+$gpu = $null
+try {
+    $raw = & nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>$null
+    if ($raw) {
+        $parts = ($raw | Select-Object -First 1) -split ',\s*'
+        $gpu = @{ percent = [double]$parts[0]; memory_used_mb = [double]$parts[1]; memory_total_mb = [double]$parts[2] }
+    }
+} catch {}
+
+$result = @{
+    hostname = $env:COMPUTERNAME
+    cpu_percent = $cpu
+    memory_total = $memTotal
+    memory_used = $memUsed
+    disk_total = $diskTotal
+    disk_used = $diskUsed
+    network_recv = $netRecv
+    network_sent = $netSent
+    gpu = $gpu
+}
+$result | ConvertTo-Json -Compress
+"""
+
+def get_remote_stats(device: dict) -> dict:
+    """Live CPU/RAM/disk/network/GPU snapshot of a remote SSH device,
+    gathered over the existing SSH connection"""
+    output = run_powershell(device, _REMOTE_STATS_SCRIPT)
+    try:
+        return json.loads(output.strip())
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"non-JSON output from stats script: {output!r}") from exc

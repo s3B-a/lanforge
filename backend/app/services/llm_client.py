@@ -14,7 +14,7 @@ async def list_models(device: dict) -> dict:
         return resp.json()
 
 async def chat(device: dict, model: str, messages: list[dict]) -> dict:
-    async with httpx.AsyncClient(timeout=120) as client:
+    async with httpx.AsyncClient(timeout=None) as client:
         resp = await client.post(
             f"{_base_url(device)}/api/chat",
             json={"model": model, "messages": messages, "stream": False, "keep_alive": -1},

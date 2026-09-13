@@ -17,7 +17,7 @@ async def chat(device: dict, model: str, messages: list[dict]) -> dict:
     async with httpx.AsyncClient(timeout=120) as client:
         resp = await client.post(
             f"{_base_url(device)}/api/chat",
-            json={"model": model, "messages": messages, "stream": False},
+            json={"model": model, "messages": messages, "stream": False, "keep_alive": -1},
         )
         resp.raise_for_status()
 
@@ -30,7 +30,7 @@ async def stream_chat(device: dict, model: str, messages: list[dict]) -> AsyncIt
         async with client.stream(
             "POST",
             f"{_base_url(device)}/api/chat",
-            json={"model": model, "messages": messages, "stream": True},
+            json={"model": model, "messages": messages, "stream": True, "keep_alive": -1},
         ) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():

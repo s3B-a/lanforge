@@ -11,7 +11,9 @@
     <div class="chat-header">
       <select id="device-select"></select>
       <select id="model-select"></select>
+      <button id="compact-btn" class="btn" type="button" title="summarize history so far and drop the rest, to shrink context">Compact</button>
       <button id="clear-btn" class="btn" type="button" title="clear this device's remembered history">Clear history</button>
+      <button id="stop-btn" class="btn stop-btn" type="button" hidden title="stop the model mid-response">Stop generating</button>
       <span id="chat-status" style="color: var(--text-dim); font-size: 12px;"></span>
     </div>
     <div id="messages" class="chat-messages">
@@ -27,6 +29,7 @@
   </div>
 
   <script src="/app/js/api.js"></script>
+  <script src="/app/js/markdown.js"></script>
   <script src="/app/js/chat.js"></script>
 </body>
 </html>

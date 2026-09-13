@@ -360,9 +360,11 @@ env vars, or `cfg\.env`
 | `GET /files/:id/download?path=` | Read a file (base64 in the JSON response) |
 | `POST /files/:id/upload` | Write a file (base64 in the JSON body) |
 | `GET /llm/:id/models` | List models available on that device's Ollama |
-| `GET /llm/:id/history` | Persisted conversation for that device, plus a `generating` flag |
+| `GET /llm/:id/history` | Persisted conversation for that device, plus `generating` and `queued` counters |
 | `DELETE /llm/:id/history` | Clear that device's persisted conversation |
-| `POST /llm/:id/chat` | Send one message (`{"model", "message", "images"?}`); streams via SSE unless `"stream": false`. Runs as a detached background task, if you disconnect the model keeps generating, `/history` and `/chat/tail` pick it back up |
+| `POST /llm/:id/chat` | Send one message (`{"model", "message", "images"?}`); streams via SSE unless `"stream": false`. Messages for the same device are queued and answered one at a time, in order, so sending a second message before the first finishes never cuts off the first response |
+| `POST /llm/:id/chat/interrupt` | Stop whatever generation is currently running for that device right away. Anything else still queued behind it is unaffected |
+| `POST /llm/:id/compact` | Ask the model to summarize the conversation so far and replace the stored history with just that summary, to shrink the context sent on future turns. Body: `{"model"}`. Fails with 409 while a generation is in progress |
 | `GET /llm/:id/chat/tail?token=` | Reconnect to a still-in-progress generation for that device (used automatically by `chat.html` on load) |
 | `GET /system/stats` | CPU/memory/disk/network snapshot of the hub machine |
 | `WS /system/stats/stream?token=` | Same stats, pushed once a second |

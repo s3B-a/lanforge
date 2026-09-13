@@ -36,3 +36,7 @@ def append_message(device_id: str, message: dict) -> list[dict]:
 def clear(device_id: str) -> None:
     with _lock:
         _save_unlocked(device_id, [])
+
+def replace_messages(device_id: str, messages: list[dict]) -> None:
+    with _lock:
+        _save_unlocked(device_id, messages)

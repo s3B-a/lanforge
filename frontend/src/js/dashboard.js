@@ -3,6 +3,7 @@ injectNav("dashboard");
 function statPercentBar(percent) {
   const cls = percent > 85 ? "bad" : percent > 60 ? "warn" : "";
   const clamped = Math.max(0, Math.min(100, percent));
+
   return `<div class="bar"><div class="bar-fill ${cls}" style="width:${clamped}%"></div></div>`;
 }
 
@@ -53,9 +54,10 @@ function deviceCard(device, remoteStats) {
   el.innerHTML = `<h3>${device.name || device.id} ${badge}</h3>${body}`;
   if (device.kind === "ssh") {
     el.addEventListener("click", () => {
-      location.href = `/device.html?id=${encodeURIComponent(device.id)}`;
+      location.href = `/app/device.html?id=${encodeURIComponent(device.id)}`;
     });
   }
+  
   return el;
 }
 

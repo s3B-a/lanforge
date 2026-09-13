@@ -1,4 +1,4 @@
-from robyn import Robyn, jsonify
+from robyn import Response, Robyn, jsonify
 
 from app.console import start_console_thread
 from app.core.auth import TokenAuthHandler
@@ -19,7 +19,7 @@ monitor.register_websockets(app)
 screen.register_websockets(app)
 
 app.serve_directory(
-    route="/",
+    route="/app",
     directory_path=str(PROJECT_ROOT / "frontend" / "src"),
     index_file="dashboard.html",
 )
@@ -27,6 +27,10 @@ app.serve_directory(
 @app.get("/health")
 def health(request):
     return jsonify({"status": "ok"})
+
+@app.get("/")
+def root(request):
+    return Response(status_code=302, headers={"Location": "/app/dashboard.html"}, description="")
 
 if __name__ == "__main__":
     start_console_thread()

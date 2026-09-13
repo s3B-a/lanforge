@@ -75,8 +75,8 @@ function injectNav(active) {
   nav.className = "topnav";
   nav.innerHTML = `
     <div class="topnav-brand">Local Hub</div>
-    <a href="/dashboard.html"${active === "dashboard" ? ' class="active"' : ""}>Dashboard</a>
-    <a href="/chat.html"${active === "chat" ? ' class="active"' : ""}>Chat</a>
+    <a href="/app/dashboard.html"${active === "dashboard" ? ' class="active"' : ""}>Dashboard</a>
+    <a href="/app/chat.html"${active === "chat" ? ' class="active"' : ""}>Chat</a>
   `;
   document.body.prepend(nav);
 }

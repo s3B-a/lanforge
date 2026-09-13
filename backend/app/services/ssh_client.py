@@ -1,3 +1,4 @@
+import base64
 import json
 from contextlib import contextmanager
 
@@ -82,20 +83,22 @@ def sftp_write(device: dict, path: str, data: bytes) -> None:
             sftp.close()
 
 def run_powershell(device: dict, script: str, timeout: int = 30) -> str:
-    """Runs a (possibly multi-line) PowerShell script by piping it over
-    stdin to `powershell -Command -`, same technique ssh_manager.py's deploy
-    uses"""
+    """Runs a (possibly multi-line) PowerShell script via -EncodedCommand:
+    one exec_command call, no stdin writes. Piping a script over stdin to
+    `powershell -Command -` (the technique ssh_manager.py's deploy uses) can
+    silently produce no output at all while still reporting exit code 0,
+    -EncodedCommand sidesteps that failure mode entirely, plus all
+    escaping/quoting concerns, by passing the whole script as one base64
+    blob on the command line."""
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    command = f"powershell -NoProfile -NonInteractive -EncodedCommand {encoded}"
     with ssh_client(device) as client:
-        stdin, stdout, stderr = client.exec_command(
-            "powershell -NoProfile -NonInteractive -Command -", timeout=timeout
-        )
-        stdin.write(script)
-        stdin.close()
+        _, stdout, stderr = client.exec_command(command, timeout=timeout)
         exit_code = stdout.channel.recv_exit_status()
         output = stdout.read().decode(errors="replace")
         if exit_code != 0:
             raise RuntimeError(stderr.read().decode(errors="replace") or f"exit code {exit_code}")
-        
+
         return output
 
 _REMOTE_STATS_SCRIPT = r"""

@@ -1,8 +1,29 @@
 import platform
+import subprocess
 import time
 import psutil
 
 _BOOT_TIME = psutil.boot_time()
+
+def _get_local_gpu() -> dict | None:
+    """Best-effort NVIDIA GPU snapshot via nvidia-smi; None if absent or on
+    any other GPU vendor."""
+    try:
+        output = subprocess.run(
+            ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if output.returncode != 0 or not output.stdout.strip():
+            return None
+        percent, used_mb, total_mb = output.stdout.strip().splitlines()[0].split(",")
+        return {
+            "percent": float(percent),
+            "memory_used_mb": float(used_mb),
+            "memory_total_mb": float(total_mb),
+        }
+    except (OSError, ValueError):
+        return None
 
 def get_local_stats() -> dict:
     mem = psutil.virtual_memory()
@@ -31,4 +52,5 @@ def get_local_stats() -> dict:
             "bytes_sent": net.bytes_sent,
             "bytes_recv": net.bytes_recv,
         },
+        "gpu": _get_local_gpu(),
     }

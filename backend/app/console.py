@@ -30,11 +30,17 @@ def _fmt_bytes(n: float) -> str:
 
 def _cmd_status(args: list[str]) -> None:
     stats = monitor.get_local_stats()
-    print(
-        f"hub: {stats['hostname']}  "
-        f"cpu {stats['cpu']['percent']:.1f}%  "
-        f"mem {stats['memory']['percent']:.1f}%"
-    )
+    print(f"hub: {stats['hostname']}")
+    print(f"  cpu    : {stats['cpu']['percent']:.1f}%")
+    print(f"  memory : {stats['memory']['percent']:.1f}%  ({_fmt_bytes(stats['memory']['used'])} / {_fmt_bytes(stats['memory']['total'])})")
+    print(f"  disk   : {stats['disk']['percent']:.1f}%  ({_fmt_bytes(stats['disk']['used'])} / {_fmt_bytes(stats['disk']['total'])})")
+    print(f"  net    : sent {_fmt_bytes(stats['network']['bytes_sent'])}  recv {_fmt_bytes(stats['network']['bytes_recv'])}")
+    gpu = stats.get("gpu")
+    if gpu:
+        print(f"  gpu    : {gpu['percent']:.0f}%  ({gpu['memory_used_mb']:.0f}MB / {gpu['memory_total_mb']:.0f}MB)")
+    else:
+        print("  gpu    : n/a")
+
     for device in devices_store.list_devices():
         state = "online" if device["online"] else "offline"
         print(f"  {device['id']:<15} {device['kind']:<10} {state}")

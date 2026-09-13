@@ -8,12 +8,19 @@ def run(args, client):
     stats = client.get("/system/stats")
     mem = stats["memory"]
     disk = stats["disk"]
+    net = stats["network"]
+    gpu = stats.get("gpu")
     print()
     print(f"hostname : {stats['hostname']}")
     print(f"uptime   : {_fmt_duration(stats['uptime_seconds'])}")
     print(f"cpu      : {stats['cpu']['percent']:.1f}%  ({stats['cpu']['cores']} cores)")
     print(f"memory   : {mem['percent']:.1f}%  ({_fmt_bytes(mem['used'])} / {_fmt_bytes(mem['total'])})")
     print(f"disk     : {disk['percent']:.1f}%  ({_fmt_bytes(disk['used'])} / {_fmt_bytes(disk['total'])})")
+    print(f"network  : sent {_fmt_bytes(net['bytes_sent'])}  recv {_fmt_bytes(net['bytes_recv'])}")
+    if gpu:
+        print(f"gpu      : {gpu['percent']:.0f}%  ({gpu['memory_used_mb']:.0f}MB / {gpu['memory_total_mb']:.0f}MB)")
+    else:
+        print("gpu      : n/a")
 
     devices = client.get("/devices")["devices"]
     print()

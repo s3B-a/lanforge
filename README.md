@@ -17,7 +17,7 @@ tool.
 | `backend/` - hub API (devices, shell, files, llm, monitor) | Built |
 | `scripts/` - firewall rule + Windows service install + device heartbeat agent | Built |
 | `frontend/` - browser dashboard (chat / devices / terminal) | Not started |
-| `cli/` - terminal client (`hub_cli.py`) | Not started |
+| `cli/` - terminal client (`hub_cli.py`) | Built |
 | `ssh/ssh_manager.py` - key generation/provisioning helper | Built |
 | Other Device Control (beyond presence detection) | Not started |
 
@@ -102,6 +102,22 @@ $env:PYTHONPATH = (Resolve-Path ".").Path
 Check it's alive: `http://<hub-host>:8080/health` should return
 `{"status": "ok"}` with no auth needed. Every other route needs the
 `Authorization: Bearer <HUB_TOKEN>` header.
+
+The same terminal window also doubles as an interactive console
+(`app/console.py`), so you don't need a separate `hub_cli.py` window just to
+run something on the hub or a registered device:
+```
+hub> status
+hub> shell local ipconfig
+hub> shell llm-rig hostname
+hub> chat llm-rig qwen3.8:27b-uncensored hello
+hub> help
+hub> exit
+```
+`exit` only stops the console loop, the server keeps running. This only
+works when the process has an actual attached terminal, it does nothing
+useful when run as a Windows service (no stdin to read), that's what
+`cli/hub_cli.py` and the HTTP API are for.
 
 **As a background Windows service (for actual daily use):**
 
@@ -254,6 +270,34 @@ Invoke-RestMethod -Uri http://<hub-host>:8080/devices -Headers @{ Authorization 
 
 Returns every device with an `online` field computed live (recent heartbeat,
 or a live TCP probe for anything else).
+
+## CLI (`cli/hub_cli.py`)
+
+A terminal client for the hub API. Shares the backend's venv (only extra
+dependency is `websockets`):
+```powershell
+.venv\Scripts\pip install websockets==13.1
+```
+
+Picks up `--hub-url`/`--token` from, in order: CLI flags, `HUB_URL`/`HUB_TOKEN`
+env vars, or `cfg\.env`
+
+```powershell
+# hub health, system stats, and the device table
+.venv\Scripts\python.exe cli\hub_cli.py status
+
+# one-shot chat message
+.venv\Scripts\python.exe cli\hub_cli.py chat llm-rig --model qwen3.8:27b-uncensored -m "hello"
+
+# interactive chat (omit -m), streams tokens live, Ctrl+C or 'exit' to quit
+.venv\Scripts\python.exe cli\hub_cli.py chat llm-rig --model qwen3.8:27b-uncensored
+
+# one-shot remote command over SSH
+.venv\Scripts\python.exe cli\hub_cli.py shell llm-rig -c "hostname"
+
+# interactive remote shell session (omit -c)
+.venv\Scripts\python.exe cli\hub_cli.py shell llm-rig
+```
 
 ## API surface (all routes except `/health` require the Bearer token)
 

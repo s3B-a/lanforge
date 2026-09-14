@@ -8,39 +8,185 @@
   const termEl = document.getElementById("terminal");
   const cmdInput = document.getElementById("terminal-cmd");
 
-  function appendTerminal(text) {
-    termEl.textContent += text;
+  const MAX_LINES = 2000;
+  let lines = [""];
+  let cursorRow = 0;
+  let cursorCol = 0;
+
+  function render() {
+    termEl.textContent = lines.join("\n");
     termEl.scrollTop = termEl.scrollHeight;
   }
 
-  function stripAnsi(text) {
-    return text
-      .replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, "")
-      .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "")
-      .replace(/\x1b[()][0-9A-Za-z]/g, "")
-      .replace(/\r\n/g, "\n")
-      .replace(/[\r\x00-\x08\x0b\x0c\x0e-\x1f]/g, "");
+  function ensureRow(row) {
+    while (lines.length <= row) lines.push("");
+  }
+
+  function trimScrollback() {
+    if (lines.length > MAX_LINES) {
+      const excess = lines.length - MAX_LINES;
+      lines.splice(0, excess);
+      cursorRow = Math.max(0, cursorRow - excess);
+    }
+  }
+
+  function putChar(ch) {
+    ensureRow(cursorRow);
+    let line = lines[cursorRow];
+    if (line.length < cursorCol) line += " ".repeat(cursorCol - line.length);
+    lines[cursorRow] = line.slice(0, cursorCol) + ch + line.slice(cursorCol + 1);
+    cursorCol++;
+  }
+
+  function lineFeed() {
+    cursorRow++;
+    ensureRow(cursorRow);
+    trimScrollback();
+  }
+
+  function eraseInLine(mode) {
+    ensureRow(cursorRow);
+    const line = lines[cursorRow];
+    if (mode === 1) {
+      lines[cursorRow] = " ".repeat(Math.min(cursorCol, line.length)) + line.slice(cursorCol);
+    } else if (mode === 2) {
+      lines[cursorRow] = "";
+    } else {
+      lines[cursorRow] = line.slice(0, cursorCol);
+    }
+  }
+
+  function eraseInDisplay(mode) {
+    if (mode === 2 || mode === 3) {
+      lines = [""];
+      cursorRow = 0;
+      cursorCol = 0;
+    } else if (mode === 1) {
+      eraseInLine(1);
+      for (let i = 0; i < cursorRow; i++) lines[i] = "";
+    } else {
+      eraseInLine(0);
+      lines.length = cursorRow + 1;
+    }
+  }
+
+  function applyCsi(params, finalChar) {
+    const n = params.length ? params[0] : 1;
+    switch (finalChar) {
+      case "A":
+        cursorRow = Math.max(0, cursorRow - (n || 1));
+        break;
+      case "B":
+        cursorRow += n || 1;
+        ensureRow(cursorRow);
+        trimScrollback();
+        break;
+      case "C":
+        cursorCol += n || 1;
+        break;
+      case "D":
+        cursorCol = Math.max(0, cursorCol - (n || 1));
+        break;
+      case "K":
+        eraseInLine(params.length ? params[0] : 0);
+        break;
+      case "J":
+        eraseInDisplay(params.length ? params[0] : 0);
+        break;
+      case "H":
+      case "f": {
+        const row = params.length > 0 ? params[0] : 1;
+        const col = params.length > 1 ? params[1] : 1;
+        cursorRow = Math.max(0, row - 1);
+        ensureRow(cursorRow);
+        cursorCol = Math.max(0, col - 1);
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  function processChunk(text) {
+    let i = 0;
+    while (i < text.length) {
+      const ch = text[i];
+
+      if (ch === "\x1b") {
+        const next = text[i + 1];
+        if (next === "[") {
+          let j = i + 2;
+          while (j < text.length && !/[a-zA-Z@]/.test(text[j])) j++;
+          if (j >= text.length) break;
+          const finalChar = text[j];
+          const params = text
+            .slice(i + 2, j)
+            .split(";")
+            .filter((s) => s !== "")
+            .map(Number);
+          applyCsi(params, finalChar);
+          i = j + 1;
+          continue;
+        }
+        if (next === "]") {
+          let j = i + 2;
+          while (j < text.length && text[j] !== "\x07" && !(text[j] === "\x1b" && text[j + 1] === "\\")) j++;
+          i = text[j] === "\x1b" ? j + 2 : j + 1;
+          continue;
+        }
+        if (next === "(" || next === ")") {
+          i += 3;
+          continue;
+        }
+        i += 2;
+        continue;
+      }
+
+      if (ch === "\r") {
+        cursorCol = 0;
+        i++;
+        continue;
+      }
+      if (ch === "\n") {
+        lineFeed();
+        i++;
+        continue;
+      }
+      if (ch === "\x08") {
+        cursorCol = Math.max(0, cursorCol - 1);
+        i++;
+        continue;
+      }
+      if (ch.charCodeAt(0) < 0x20 && ch !== "\t") {
+        i++;
+        continue;
+      }
+
+      putChar(ch);
+      i++;
+    }
+  }
+
+  function appendStatus(text) {
+    processChunk(text);
+    render();
   }
 
   if (!deviceId) {
-    appendTerminal("no ?id= given in the URL\n");
+    appendStatus("no ?id= given in the URL\n");
     return;
   }
 
   const ws = new WebSocket(wsUrl(`/ws/shell?device_id=${encodeURIComponent(deviceId)}`));
 
-  ws.onopen = () => appendTerminal(`connected to ${deviceId}\n`);
-  ws.onmessage = (event) => appendTerminal(stripAnsi(event.data));
-  ws.onclose = () => appendTerminal("\n[connection closed]\n");
-  ws.onerror = () => appendTerminal("\n[connection error]\n");
+  ws.onopen = () => appendStatus(`connected to ${deviceId}\n`);
+  ws.onmessage = (event) => {
+    processChunk(event.data);
+    render();
+  };
+  ws.onclose = () => appendStatus("\n[connection closed]\n");
+  ws.onerror = () => appendStatus("\n[connection error]\n");
 
-  // Forward every keystroke immediately, the way a real terminal does,
-  // instead of buffering a line locally and sending it whole on Enter.
-  // This is what makes the remote shell's own tab-completion, command
-  // history (up/down), and Ctrl+C work: those all depend on the shell
-  // seeing each key as it's pressed, not a finished line after the fact.
-  // The input box itself stays empty, whatever you're typing shows up
-  // from the remote's own echo in the terminal output above it.
   const KEY_SEQUENCES = {
     Enter: "\r\n",
     Backspace: "\x7f",
@@ -57,7 +203,6 @@
 
     if (toSend === undefined) {
       if (e.ctrlKey && e.key.length === 1) {
-        // Ctrl+<letter> -> its control byte (Ctrl+C -> 0x03, etc.)
         const code = e.key.toUpperCase().charCodeAt(0) - 64;
         if (code >= 0 && code < 32) toSend = String.fromCharCode(code);
       } else if (e.key.length === 1) {
@@ -70,7 +215,7 @@
     cmdInput.value = "";
 
     if (ws.readyState !== WebSocket.OPEN) {
-      appendTerminal(`\n[can't send, connection isn't open (state ${ws.readyState})]\n`);
+      appendStatus(`\n[can't send, connection isn't open (state ${ws.readyState})]\n`);
       return;
     }
 

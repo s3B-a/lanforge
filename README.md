@@ -294,7 +294,8 @@ caches it in that browser's `localStorage`.
   per registered device, live CPU/RAM/disk/GPU for online SSH devices, an
   online/offline badge for presence devices. Click an SSH device's card to
   open it.
-- **`device.html?id=<device-id>`**: split view. One side has a terminal, other side is a live view of that machine's screen(s).
+- **`device.html?id=<device-id>`**: split view. One side has a terminal, other side is a live,
+  clickable view of that machine's screen(s).
 - **`chat.html`**: pick a registered LLM device and one of its installed
   models, then chat, responses stream in token-by-token.
 

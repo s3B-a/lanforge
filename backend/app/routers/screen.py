@@ -1,4 +1,7 @@
+import asyncio
 import json
+
+from robyn.ws import WebSocketDisconnect
 
 from app.core import devices_store
 from app.core.config import HUB_TOKEN
@@ -80,12 +83,29 @@ def register_websockets(app):
             await _safe_close(websocket)
             return ""
 
+        async def _pump_input():
+            try:
+                while True:
+                    message = await websocket.receive_text()
+                    writer.write(message.encode() + b"\n")
+                    await writer.drain()
+            except WebSocketDisconnect:
+                pass
+            except Exception:
+                pass
+
+        input_task = asyncio.create_task(_pump_input())
         try:
             async for frame in _read_frames(reader):
                 await websocket.send_bytes(frame)
         except Exception:
             pass
         finally:
+            input_task.cancel()
+            try:
+                await input_task
+            except (asyncio.CancelledError, Exception):
+                pass
             writer.close()
             await _safe_close(websocket)
 

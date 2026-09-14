@@ -18,6 +18,7 @@ _INPUT_KEYBOARD = 1
 
 _MOUSEEVENTF_MOVE = 0x0001
 _MOUSEEVENTF_ABSOLUTE = 0x8000
+_MOUSEEVENTF_VIRTUALDESK = 0x4000
 _MOUSEEVENTF_WHEEL = 0x0800
 _MOUSE_BUTTON_FLAGS = {
     ("left", True): 0x0002,
@@ -88,7 +89,7 @@ def _move_mouse(x_frac: float, y_frac: float) -> None:
     y_frac = min(1.0, max(0.0, y_frac))
     mi = _MOUSEINPUT(
         dx=int(x_frac * 65535), dy=int(y_frac * 65535), mouseData=0,
-        dwFlags=_MOUSEEVENTF_MOVE | _MOUSEEVENTF_ABSOLUTE, time=0, dwExtraInfo=None,
+        dwFlags=_MOUSEEVENTF_MOVE | _MOUSEEVENTF_ABSOLUTE | _MOUSEEVENTF_VIRTUALDESK, time=0, dwExtraInfo=None,
     )
     _send_inputs(_INPUT(type=_INPUT_MOUSE, union=_INPUTUNION(mi=mi)))
 

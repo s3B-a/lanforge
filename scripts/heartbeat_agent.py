@@ -20,12 +20,15 @@ def load_banners() -> list[str]:
     paths = sorted(BANNERS_DIR.glob("*.txt"))
     return [p.read_text(encoding="utf-8") for p in paths]
 
-def local_ip() -> str:
+def local_ip() -> str | None:
     """No packets are actually sent; connecting a UDP socket just makes the
     OS pick the right outbound interface/IP for the route to 8.8.8.8."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        s.connect(("8.8.8.8", 80))
+        try:
+            s.connect(("8.8.8.8", 80))
+        except OSError:
+            return None
         return s.getsockname()[0]
     finally:
         s.close()
@@ -61,6 +64,11 @@ def main() -> None:
 
     while True:
         ip = local_ip()
+        if ip is None:
+            print("--> network route is unavailable -- retrying shortly...", flush=True)
+            time.sleep(args.interval)
+            continue
+
         print(f"--> connecting to hub as {ip} ...", end=" ", flush=True)
         try:
             send_heartbeat(args.hub_url, args.device_id, args.token, ip)

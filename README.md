@@ -1,4 +1,4 @@
-# localserver
+# lanforge
 
 A self-hosted hub that runs on a Windows 11 machine on your home network. It
 lets you manage and talk to other devices on the LAN, run shell commands
@@ -67,8 +67,8 @@ Devices are tracked in `cfg/devices.json` in one of two `kind`s:
 ## Install on the hub machine
 
 ```powershell
-git clone https://github.com/s3B-a/localserver
-cd localserver
+git clone https://github.com/s3B-a/lanforge
+cd lanforge
 
 python -m venv .venv
 .venv\Scripts\pip install -r backend\requirements.txt
@@ -439,7 +439,7 @@ while you're actively logged in over RDP or at the console.
    logged in**, set to run only while logged on:
    ```powershell
    $action = New-ScheduledTaskAction -Execute "python.exe" `
-       -Argument "C:\path\to\localserver\scripts\screen_agent.py --token <HUB_TOKEN> --port 5910"
+       -Argument "C:\path\to\lanforge\scripts\screen_agent.py --token <HUB_TOKEN> --port 5910"
    $trigger = New-ScheduledTaskTrigger -AtLogOn
    Register-ScheduledTask -TaskName "LocalHubScreenAgent" -Action $action -Trigger $trigger -RunLevel Limited
    Start-ScheduledTask -TaskName "LocalHubScreenAgent"

@@ -67,7 +67,7 @@ Devices are tracked in `cfg/devices.json` in one of two `kind`s:
 ## Install on the hub machine
 
 ```powershell
-git clone <this repo> localserver
+git clone https://github.com/s3B-a/localserver
 cd localserver
 
 python -m venv .venv

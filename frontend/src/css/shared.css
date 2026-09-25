@@ -1,14 +1,14 @@
 :root {
-  --bg: #0f1117;
-  --bg-elevated: #171a23;
-  --border: #2a2e3a;
-  --text: #e6e8ee;
-  --text-dim: #9098ab;
-  --accent: #5b8cff;
-  --accent-dim: #2f3f66;
-  --good: #3fcf8e;
-  --bad: #ef5b5b;
-  --warn: #e8b339;
+  --bg: #111214;
+  --bg-elevated: #2a2d2f;
+  --border: #45494c;
+  --text: #cfd4d7;
+  --text-dim: #9da5aa;
+  --accent: #ff7a1a;
+  --accent-dim: #603719;
+  --good: #8fd6a8;
+  --bad: #ff7668;
+  --warn: #ffd0a6;
   --radius: 10px;
 }
 
@@ -83,7 +83,7 @@ body {
 .bar {
   height: 6px;
   border-radius: 4px;
-  background: #262a36;
+  background: #1d2022;
   overflow: hidden;
   margin: 2px 0 8px;
 }
@@ -139,8 +139,8 @@ body {
 }
 
 .terminal {
-  background: #000;
-  color: #d6d6d6;
+  background: #0b0c0d;
+  color: #cfd4d7;
   font-family: "Cascadia Code", Consolas, monospace;
   font-size: 13px;
   flex: 1;
@@ -157,8 +157,8 @@ body {
 }
 .terminal-input input {
   flex: 1;
-  background: #000;
-  color: #d6d6d6;
+  background: #0b0c0d;
+  color: #cfd4d7;
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px;
@@ -498,7 +498,7 @@ body {
   font-size: 13px;
 }
 .msg-content pre {
-  background: #0b0d12;
+  background: #17191a;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px 12px;

@@ -55,11 +55,14 @@ Devices are tracked in `cfg/devices.json` in one of two `kind`s:
 
 ## Prerequisites
 
-- The hub machine: Windows 11, Python 3.12+.
+- The hub machine: Windows 11, Python 3.12+, a reliable wired network
+   connection, and a reserved LAN address.
 - Each `ssh` device: OpenSSH server enabled and reachable, and a key pair you
   control (the hub connects as a normal SSH client, nothing exotic).
 - [NSSM](https://nssm.cc/download) if you want the hub to run as a background
   Windows service (optional; you can also just run it in a terminal).
+- A router that supports DHCP reservations and port forwarding if you want
+   access from outside the home network.
 
 ## Install on the hub machine
 
@@ -85,9 +88,57 @@ Edit `cfg\.env`:
   itself).
 - `HUB_PORT`: default `8080`, change if that's taken.
 
+For LAN or external access through Caddy, `HUB_HOST` must be `0.0.0.0` so
+Robyn listens on the hub's network interfaces. Caddy can then proxy locally
+to `127.0.0.1:8080`; port `8080` still must not be forwarded by the router.
+
 Edit `cfg\devices.json`: start from the example entries and either edit them
 in place or delete them and use the API (see "Adding a device" below) once
 the hub is running.
+
+### Reserve the hub's LAN address
+
+On the router, create a DHCP reservation for the hub's physical Ethernet
+adapter. The reservation must use the MAC address of the adapter connected to
+the router, not a VPN, VMware, or other virtual adapter. On the hub, find it
+with:
+
+```powershell
+Get-NetAdapter |
+   Select-Object Name, InterfaceDescription, Status, LinkSpeed, MacAddress |
+   Format-Table -AutoSize
+```
+
+Then confirm which adapter owns the address reserved for the hub:
+
+```powershell
+Get-NetIPAddress -AddressFamily IPv4 |
+   Where-Object IPAddress -eq "192.168.1.71" |
+   Select-Object InterfaceAlias, InterfaceIndex, IPAddress
+```
+
+Use the returned adapter's MAC address in the router reservation. In this
+example the hub is `192.168.1.71`; replace that address if your router uses a
+different one. Keep the reservation stable before configuring port forwarding.
+
+If the wired connection repeatedly disappears, first replace the cable, try
+another router port, connect the USB Ethernet adapter directly rather than
+through a dock, and disable Ethernet/USB power saving. The hub cannot be
+reached while its adapter is disconnected, regardless of the reservation.
+
+### Check the local network
+
+Start the hub manually, then test it from the hub and from another device on
+the same LAN:
+
+```powershell
+Invoke-WebRequest http://127.0.0.1:8080/health
+Invoke-WebRequest http://192.168.1.71:8080/health
+```
+
+Both requests should return `{"status": "ok"}` before setting up external
+access. The `/health` route is intentionally unauthenticated; all other API
+routes require the bearer token.
 
 ### Run it
 
@@ -146,6 +197,73 @@ useful when run as a Windows service (no stdin to read), that's what
 Logs land in `logs\hub.out.log` / `logs\hub.err.log`. To reinstall after
 changing `install_service.ps1`, remove the old service first
 (`nssm\nssm.exe remove LocalHub confirm`) then rerun the script.
+
+### External access with DuckDNS and Caddy
+
+For access from an iPhone or any other device outside the LAN, put Caddy in
+front of the hub. Caddy terminates HTTPS, renews the certificate, and proxies
+normal HTTP requests and WebSocket connections to Robyn. Do not forward port
+`8080` directly to the internet.
+
+1. Create a free hostname at [DuckDNS](https://www.duckdns.org/), for example
+   `my-local-hub.duckdns.org`, and point it at your home's public IPv4 address.
+   Install or schedule DuckDNS's Windows updater so the record follows a
+   changing public IP.
+
+2. Install Caddy on the hub. With `winget`:
+   ```powershell
+   winget install CaddyServer.Caddy
+   ```
+
+3. Create `C:\Caddy\Caddyfile` on the hub:
+   ```caddyfile
+   my-local-hub.duckdns.org {
+       reverse_proxy 127.0.0.1:8080
+   }
+   ```
+   Replace the hostname with your actual DuckDNS name. Caddy automatically
+   forwards the hub's WebSocket routes as well as ordinary HTTP traffic.
+
+4. Allow Caddy through Windows Firewall on the hub, as Administrator:
+   ```powershell
+   New-NetFirewallRule -DisplayName "LocalHub-Caddy-HTTP" `
+       -Direction Inbound -Protocol TCP -LocalPort 80 `
+       -Profile Private,Domain -Action Allow
+   New-NetFirewallRule -DisplayName "LocalHub-Caddy-HTTPS" `
+       -Direction Inbound -Protocol TCP -LocalPort 443 `
+       -Profile Private,Domain -Action Allow
+   ```
+
+5. In the router, reserve the hub's LAN address first, then add these port
+   forwarding rules:
+   ```text
+   TCP external 80  -> 192.168.1.71:80
+   TCP external 443 -> 192.168.1.71:443
+   ```
+   Use the hub address reserved on your router if it is not `192.168.1.71`.
+   Do not forward `8080`, the Ollama port, the screen-agent port, or SSH just
+   to make the web interface work.
+
+6. Validate and run Caddy on the hub:
+   ```powershell
+   caddy validate --config C:\Caddy\Caddyfile
+   caddy run --config C:\Caddy\Caddyfile
+   ```
+   Ports `80` and `443` must be reachable from the internet while Caddy gets
+   its first certificate. Test from a phone with Wi-Fi disabled:
+   `https://my-local-hub.duckdns.org/`.
+
+Once the foreground test works, run Caddy as a Windows service using NSSM or
+the service instructions from your Caddy installation. The final path is:
+
+```
+iPhone -> https://my-local-hub.duckdns.org -> router -> Caddy -> Robyn :8080
+```
+
+If the hostname works on the LAN but not from cellular data, check the
+router's WAN address against a public IP lookup service. If they differ, the
+ISP is probably using CGNAT and ordinary port forwarding will not work; use
+Tailscale or a reverse tunnel instead.
 
 ## Adding a new device
 

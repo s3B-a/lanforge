@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Device</title>
+  <link rel="stylesheet" href="/app/css/shared.css">
+</head>
+<body>
+  <div class="page" style="max-width: none;">
+    <h2 id="device-title">Device</h2>
+    <div class="split">
+      <div>
+        <h3>Terminal</h3>
+        <div id="terminal" class="terminal"></div>
+        <div class="terminal-input">
+          <input id="terminal-cmd" type="text" placeholder="click here and type, Tab completes, Ctrl+C works too" autocomplete="off">
+        </div>
+      </div>
+      <div>
+        <h3>Screen <span style="font-weight: normal; color: var(--text-dim); font-size: 12px;">(click to control, then type/scroll/click as usual)</span></h3>
+        <div class="screen-view">
+          <img id="screen-img" alt="waiting for frames...">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app/js/api.js"></script>
+  <script src="/app/js/terminal.js"></script>
+  <script src="/app/js/screen.js"></script>
+</body>
+</html>

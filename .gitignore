@@ -4,6 +4,7 @@ ssh/keys/
 *.key
 id_rsa*
 cfg/devices.json
+cfg/conversations/
 .env
 .env.*
 !.env.example

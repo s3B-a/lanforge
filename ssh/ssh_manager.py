@@ -202,6 +202,8 @@ def cmd_register(args: argparse.Namespace) -> None:
     }
     if args.ollama_port:
         payload["ollama_port"] = args.ollama_port
+    if args.screen_port:
+        payload["screen_port"] = args.screen_port
 
     _hub_request(args.hub_url, "/devices", "POST", args.token, payload)
 
@@ -229,10 +231,15 @@ def cmd_update(args: argparse.Namespace) -> None:
         "ssh_port": args.ssh_port,
         "ssh_user": args.ssh_user,
         "ollama_port": args.ollama_port,
+        "screen_port": args.screen_port,
     }
     fields = {k: v for k, v in fields.items() if v is not None}
     if not fields:
-        print("error: give at least one field to update (--name/--host/--ssh-port/--ssh-user/--ollama-port)", file=sys.stderr)
+        print(
+            "error: give at least one field to update "
+            "(--name/--host/--ssh-port/--ssh-user/--ollama-port/--screen-port)",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     _hub_request(args.hub_url, f"/devices/{args.device_id}", "PATCH", args.token, fields)
@@ -299,6 +306,7 @@ def main() -> None:
     p.add_argument("--ssh-port", type=int, default=22)
     p.add_argument("--name")
     p.add_argument("--ollama-port", type=int)
+    p.add_argument("--screen-port", type=int, help="port scripts/screen_agent.py is listening on for the screen view")
     p.set_defaults(func=cmd_register)
 
     p = sub.add_parser("update", help="patch fields on an already-registered device")
@@ -310,6 +318,7 @@ def main() -> None:
     p.add_argument("--ssh-port", type=int)
     p.add_argument("--name")
     p.add_argument("--ollama-port", type=int, help="add this once you've installed an LLM on an already-registered device")
+    p.add_argument("--screen-port", type=int, help="add this once scripts/screen_agent.py is set up on the device")
     p.set_defaults(func=cmd_update)
 
     p = sub.add_parser("list", help="list locally managed keypairs")

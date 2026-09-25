@@ -16,7 +16,7 @@ def run(args, client):
 async def _interactive(client, device_id: str) -> None:
     ws_scheme = "wss" if client.hub_url.startswith("https://") else "ws"
     host_part = client.hub_url.split("://", 1)[1]
-    url = f"{ws_scheme}://{host_part}/shell/{device_id}/session?token={client.token}"
+    url = f"{ws_scheme}://{host_part}/ws/shell?device_id={device_id}&token={client.token}"
 
     print(f"Connected to '{device_id}'. Ctrl+C to disconnect.")
     async with websockets.connect(url) as ws:

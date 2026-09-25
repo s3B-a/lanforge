@@ -15,8 +15,8 @@ tool.
 | Piece | Status |
 |---|---|
 | `backend/` - hub API (devices, shell, files, llm, monitor) | Built |
-| `scripts/` - firewall rule + Windows service install + device heartbeat agent | Built |
-| `frontend/` - browser dashboard (chat / devices / terminal) | Not started |
+| `scripts/` - firewall rule + Windows service install + device heartbeat agent + screen capture agent | Built |
+| `frontend/` - browser dashboard (chat / devices / terminal + screen) | Built |
 | `cli/` - terminal client (`hub_cli.py`) | Built |
 | `ssh/ssh_manager.py` - key generation/provisioning helper | Built |
 | Other Device Control (beyond presence detection) | Not started |
@@ -55,11 +55,14 @@ Devices are tracked in `cfg/devices.json` in one of two `kind`s:
 
 ## Prerequisites
 
-- The hub machine: Windows 11, Python 3.12+.
+- The hub machine: Windows 11, Python 3.12+, a reliable wired network
+   connection, and a reserved LAN address.
 - Each `ssh` device: OpenSSH server enabled and reachable, and a key pair you
   control (the hub connects as a normal SSH client, nothing exotic).
 - [NSSM](https://nssm.cc/download) if you want the hub to run as a background
   Windows service (optional; you can also just run it in a terminal).
+- A router that supports DHCP reservations and port forwarding if you want
+   access from outside the home network.
 
 ## Install on the hub machine
 
@@ -85,9 +88,57 @@ Edit `cfg\.env`:
   itself).
 - `HUB_PORT`: default `8080`, change if that's taken.
 
+For LAN or external access through Caddy, `HUB_HOST` must be `0.0.0.0` so
+Robyn listens on the hub's network interfaces. Caddy can then proxy locally
+to `127.0.0.1:8080`; port `8080` still must not be forwarded by the router.
+
 Edit `cfg\devices.json`: start from the example entries and either edit them
 in place or delete them and use the API (see "Adding a device" below) once
 the hub is running.
+
+### Reserve the hub's LAN address
+
+On the router, create a DHCP reservation for the hub's physical Ethernet
+adapter. The reservation must use the MAC address of the adapter connected to
+the router, not a VPN, VMware, or other virtual adapter. On the hub, find it
+with:
+
+```powershell
+Get-NetAdapter |
+   Select-Object Name, InterfaceDescription, Status, LinkSpeed, MacAddress |
+   Format-Table -AutoSize
+```
+
+Then confirm which adapter owns the address reserved for the hub:
+
+```powershell
+Get-NetIPAddress -AddressFamily IPv4 |
+   Where-Object IPAddress -eq "192.168.1.71" |
+   Select-Object InterfaceAlias, InterfaceIndex, IPAddress
+```
+
+Use the returned adapter's MAC address in the router reservation. In this
+example the hub is `192.168.1.71`; replace that address if your router uses a
+different one. Keep the reservation stable before configuring port forwarding.
+
+If the wired connection repeatedly disappears, first replace the cable, try
+another router port, connect the USB Ethernet adapter directly rather than
+through a dock, and disable Ethernet/USB power saving. The hub cannot be
+reached while its adapter is disconnected, regardless of the reservation.
+
+### Check the local network
+
+Start the hub manually, then test it from the hub and from another device on
+the same LAN:
+
+```powershell
+Invoke-WebRequest http://127.0.0.1:8080/health
+Invoke-WebRequest http://192.168.1.71:8080/health
+```
+
+Both requests should return `{"status": "ok"}` before setting up external
+access. The `/health` route is intentionally unauthenticated; all other API
+routes require the bearer token.
 
 ### Run it
 
@@ -146,6 +197,73 @@ useful when run as a Windows service (no stdin to read), that's what
 Logs land in `logs\hub.out.log` / `logs\hub.err.log`. To reinstall after
 changing `install_service.ps1`, remove the old service first
 (`nssm\nssm.exe remove LocalHub confirm`) then rerun the script.
+
+### External access with DuckDNS and Caddy
+
+For access from an iPhone or any other device outside the LAN, put Caddy in
+front of the hub. Caddy terminates HTTPS, renews the certificate, and proxies
+normal HTTP requests and WebSocket connections to Robyn. Do not forward port
+`8080` directly to the internet.
+
+1. Create a free hostname at [DuckDNS](https://www.duckdns.org/), for example
+   `my-local-hub.duckdns.org`, and point it at your home's public IPv4 address.
+   Install or schedule DuckDNS's Windows updater so the record follows a
+   changing public IP.
+
+2. Install Caddy on the hub. With `winget`:
+   ```powershell
+   winget install CaddyServer.Caddy
+   ```
+
+3. Create `C:\Caddy\Caddyfile` on the hub:
+   ```caddyfile
+   my-local-hub.duckdns.org {
+       reverse_proxy 127.0.0.1:8080
+   }
+   ```
+   Replace the hostname with your actual DuckDNS name. Caddy automatically
+   forwards the hub's WebSocket routes as well as ordinary HTTP traffic.
+
+4. Allow Caddy through Windows Firewall on the hub, as Administrator:
+   ```powershell
+   New-NetFirewallRule -DisplayName "LocalHub-Caddy-HTTP" `
+       -Direction Inbound -Protocol TCP -LocalPort 80 `
+       -Profile Private,Domain -Action Allow
+   New-NetFirewallRule -DisplayName "LocalHub-Caddy-HTTPS" `
+       -Direction Inbound -Protocol TCP -LocalPort 443 `
+       -Profile Private,Domain -Action Allow
+   ```
+
+5. In the router, reserve the hub's LAN address first, then add these port
+   forwarding rules:
+   ```text
+   TCP external 80  -> 192.168.1.71:80
+   TCP external 443 -> 192.168.1.71:443
+   ```
+   Use the hub address reserved on your router if it is not `192.168.1.71`.
+   Do not forward `8080`, the Ollama port, the screen-agent port, or SSH just
+   to make the web interface work.
+
+6. Validate and run Caddy on the hub:
+   ```powershell
+   caddy validate --config C:\Caddy\Caddyfile
+   caddy run --config C:\Caddy\Caddyfile
+   ```
+   Ports `80` and `443` must be reachable from the internet while Caddy gets
+   its first certificate. Test from a phone with Wi-Fi disabled:
+   `https://my-local-hub.duckdns.org/`.
+
+Once the foreground test works, run Caddy as a Windows service using NSSM or
+the service instructions from your Caddy installation. The final path is:
+
+```
+iPhone -> https://my-local-hub.duckdns.org -> router -> Caddy -> Robyn :8080
+```
+
+If the hostname works on the LAN but not from cellular data, check the
+router's WAN address against a public IP lookup service. If they differ, the
+ISP is probably using CGNAT and ordinary port forwarding will not work; use
+Tailscale or a reverse tunnel instead.
 
 ## Adding a new device
 
@@ -251,8 +369,9 @@ the LLM rig is running. To put a model on that machine (for our example:
      (`--host`, `--ssh-user`, `--ssh-port`, `--name`, `--ollama-port`)
      without touching the rest of the device's entry. `register` can't be
      reused here, the hub rejects registering an ID that already exists.
-5. From the hub: `POST /llm/<device-id>/chat` with
-   `{"model": "qwen3.8:27b-uncensored", "messages": [...]}` (see the API
+5. From the hub: create a chat with `POST /llm/<device-id>/conversations`,
+   then `POST /llm/<device-id>/conversations/<conversation-id>/chat` with
+   `{"model": "qwen3.8:27b-uncensored", "message": "..."}` (see the API
    table below).
 
 ### A presence-only device (anything that can't run a script)
@@ -280,6 +399,62 @@ Invoke-RestMethod -Uri http://<hub-host>:8080/devices -Headers @{ Authorization 
 
 Returns every device with an `online` field computed live (recent heartbeat,
 or a live TCP probe for anything else).
+
+## Frontend (`frontend/src/`)
+
+Plain HTML/CSS/JS. The backend serves it
+directly (`app.serve_directory` in `main.py`), so once the hub is running,
+just open `http://<hub-host>:8080/` in a browser.
+The first API call on each page prompts once for `HUB_TOKEN` and
+caches it in that browser's `localStorage`.
+
+- **`dashboard.html`**: the hub's own stats plus a card
+  per registered device, live CPU/RAM/disk/GPU for online SSH devices, an
+  online/offline badge for presence devices. Click an SSH device's card to
+  open it.
+- **`device.html?id=<device-id>`**: split view. One side has a terminal, other side is a live,
+  clickable view of that machine's screen(s).
+- **`chat.html`**: pick a registered LLM device and one of its installed
+  models, then chat, responses stream in token-by-token.
+
+**How the screen view works**: running `ffmpeg` directly over the SSH connection like everything else, does not work on Windows. Screen capture (`gdigrab`, and
+every other Windows capture API) requires access to the interactive
+window station, and a process spawned by `sshd` always lands in a
+different, non-interactive window station with no desktop access, even
+while you're actively logged in over RDP or at the console.
+
+**Setting it up on a device** (e.g. `llm-rig`):
+
+1. Install `ffmpeg` and put it on that account's `PATH` (grab a Windows
+   build from [ffmpeg.org](https://ffmpeg.org/download.html)):
+   ```
+   hub> shell llm-rig ffmpeg -version
+   ```
+2. Open the agent's port to your LAN on that device, as Administrator
+   (reusing the same script the hub itself uses):
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts\firewall_setup.ps1 -Port 5910
+   ```
+3. Register a Scheduled Task on that device, **as the user who's actually
+   logged in**, set to run only while logged on:
+   ```powershell
+   $action = New-ScheduledTaskAction -Execute "python.exe" `
+       -Argument "C:\path\to\localserver\scripts\screen_agent.py --token <HUB_TOKEN> --port 5910"
+   $trigger = New-ScheduledTaskTrigger -AtLogOn
+   Register-ScheduledTask -TaskName "LocalHubScreenAgent" -Action $action -Trigger $trigger -RunLevel Limited
+   Start-ScheduledTask -TaskName "LocalHubScreenAgent"
+   ```
+   `-RunLevel Limited` (not `Highest`) together with the `-AtLogOn`
+   trigger and no explicit `-User`/`-Password` is what makes Task
+   Scheduler run it in your interactive session rather than detached.
+4. Tell the hub about the port:
+   ```powershell
+   .venv\Scripts\python.exe ssh\ssh_manager.py update llm-rig `
+       --hub-url http://<hub-host>:8080 --token <HUB_TOKEN> --screen-port 5910
+   ```
+
+From then on the screen view on `device.html` works as long as that
+Scheduled Task is running (it restarts automatically at every logon).
 
 ## CLI (`cli/hub_cli.py`)
 
@@ -319,13 +494,24 @@ env vars, or `cfg\.env`
 | `PATCH /devices/:id` | Merge fields into an existing device (used by `ssh_manager.py update`) |
 | `POST /devices/:id/heartbeat` | Used by `heartbeat_agent.py` to report current IP |
 | `GET /devices/:id/stats` | Live CPU/RAM/disk/network/GPU snapshot of an SSH device |
+| `WS /ws/screen?device_id=&token=` | Live JPEG frame stream of the device's monitor(s), composited into one image |
 | `POST /shell/:id/exec` | Run a one-shot command over SSH |
-| `WS /shell/:id/session?token=` | Interactive terminal session |
+| `WS /ws/shell?device_id=&token=` | Interactive terminal session |
 | `GET /files/:id/list?path=` | List a directory over SFTP |
 | `GET /files/:id/download?path=` | Read a file (base64 in the JSON response) |
 | `POST /files/:id/upload` | Write a file (base64 in the JSON body) |
 | `GET /llm/:id/models` | List models available on that device's Ollama |
-| `POST /llm/:id/chat` | Chat with the model; streams via SSE unless `"stream": false` |
+| `GET /llm/:id/conversations` | List that device's chats (id, title, timestamps), newest first |
+| `POST /llm/:id/conversations` | Start a new chat on that device. Body: `{"title"?}` |
+| `DELETE /llm/:id/conversations/:cid` | Delete a chat entirely. Fails with 409 while it's generating |
+| `PATCH /llm/:id/conversations/:cid` | Rename a chat. Body: `{"title"}`, rejected with 400 if blank |
+| `GET /llm/:id/conversations/:cid/files` | List the images that were uploaded as attachments in that chat |
+| `GET /llm/:id/conversations/:cid/history` | That chat's persisted messages, plus `generating` and `queued` counters |
+| `DELETE /llm/:id/conversations/:cid/history` | Clear a chat's messages, keeping the chat itself |
+| `POST /llm/:id/conversations/:cid/chat` | Send one message (`{"model", "message", "images"?}`); streams via SSE unless `"stream": false`. Messages within the same chat are queued and answered one at a time |
+| `POST /llm/:id/conversations/:cid/chat/interrupt` | Stop whatever generation is currently running in that chat right away |
+| `POST /llm/:id/conversations/:cid/compact` | Ask the model to summarize that chat so far and replace its stored history with just that summary, to shrink the context sent on future turns. Body: `{"model"}`. Fails with 409 while a generation is in progress |
+| `GET /llm/:id/conversations/:cid/chat/tail?token=` | Reconnect to a still-in-progress generation in that chat (used automatically by `chat.html` on load) |
 | `GET /system/stats` | CPU/memory/disk/network snapshot of the hub machine |
 | `WS /system/stats/stream?token=` | Same stats, pushed once a second |
 
